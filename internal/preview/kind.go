@@ -1,0 +1,26 @@
+package preview
+
+import (
+	"path/filepath"
+	"strings"
+)
+
+func KindForName(name string) string {
+	ext := strings.ToLower(filepath.Ext(name))
+	switch ext {
+	case ".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".avif", ".gif", ".tif", ".tiff", ".bmp":
+		return "image"
+	case ".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi":
+		return "video"
+	case ".txt", ".log", ".csv", ".json", ".xml", ".yaml", ".yml", ".toml", ".ini":
+		return "text"
+	case ".md", ".markdown":
+		return "markdown"
+	case ".pdf":
+		return "pdf"
+	case ".glb", ".gltf", ".stl", ".obj", ".ply":
+		return "3d"
+	default:
+		return ""
+	}
+}

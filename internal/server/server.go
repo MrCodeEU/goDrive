@@ -1,0 +1,132 @@
+package server
+
+import (
+	"encoding/json"
+	"errors"
+	"io/fs"
+	"log/slog"
+	"net/http"
+
+	"godrive/internal/config"
+	"godrive/internal/files"
+	"godrive/internal/store"
+)
+
+type Server struct {
+	cfg        config.Config
+	store      *store.Store
+	files      *files.Service
+	log        *slog.Logger
+	jobs       *AdminJobs
+	httpServer *http.Server
+}
+
+func New(cfg config.Config, st *store.Store, fileService *files.Service, log *slog.Logger) *Server {
+	server := &Server{
+		cfg:   cfg,
+		store: st,
+		files: fileService,
+		log:   log,
+		jobs:  NewAdminJobs(),
+	}
+	server.httpServer = &http.Server{
+		Addr:    cfg.Addr,
+		Handler: server.routes(),
+	}
+	return server
+}
+
+func (s *Server) ListenAndServe() error {
+	return s.httpServer.ListenAndServe()
+}
+
+func (s *Server) routes() http.Handler {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("GET /", s.index)
+	mux.Handle("GET /assets/", s.assets())
+	mux.HandleFunc("GET /health", s.health)
+
+	mux.HandleFunc("POST /api/auth/login", s.login)
+	mux.HandleFunc("POST /api/auth/logout", s.withUser(s.logout))
+	mux.HandleFunc("GET /api/me", s.withUser(s.me))
+
+	mux.HandleFunc("GET /api/admin/users", s.withAdmin(s.listUsers))
+	mux.HandleFunc("POST /api/admin/users", s.withAdmin(s.createUser))
+	mux.HandleFunc("PATCH /api/admin/users/{id}", s.withAdmin(s.updateUser))
+	mux.HandleFunc("POST /api/admin/users/{id}/password", s.withAdmin(s.setPassword))
+	mux.HandleFunc("GET /api/admin/stats", s.withAdmin(s.adminStats))
+	mux.HandleFunc("GET /api/admin/jobs/current", s.withAdmin(s.currentAdminJob))
+	mux.HandleFunc("POST /api/admin/jobs/reindex", s.withAdmin(s.startReindex))
+	mux.HandleFunc("POST /api/admin/jobs/preview-warmup", s.withAdmin(s.startPreviewWarmup))
+
+	mux.HandleFunc("GET /api/files/list", s.withUser(s.listFiles))
+	mux.HandleFunc("POST /api/files/mkdir", s.withUser(s.mkdir))
+	mux.HandleFunc("GET /api/files/download", s.withUser(s.download))
+	mux.HandleFunc("GET /api/files/text", s.withUser(s.textPreview))
+	mux.HandleFunc("GET /api/files/thumbnail", s.withUser(s.thumbnail))
+	mux.HandleFunc("POST /api/files/move", s.withUser(s.move))
+	mux.HandleFunc("DELETE /api/files", s.withUser(s.deleteFile))
+	mux.HandleFunc("POST /api/files/bulk/delete", s.withUser(s.bulkDelete))
+	mux.HandleFunc("POST /api/files/bulk/move", s.withUser(s.bulkMove))
+	mux.HandleFunc("POST /api/files/bulk/download", s.withUser(s.bulkDownload))
+
+	mux.HandleFunc("GET /api/trash", s.withUser(s.listTrash))
+	mux.HandleFunc("POST /api/trash/{id}/restore", s.withUser(s.restoreTrash))
+	mux.HandleFunc("DELETE /api/trash/{id}", s.withUser(s.permanentlyDeleteTrash))
+
+	mux.HandleFunc("OPTIONS /api/tus", s.tusOptions)
+	mux.HandleFunc("OPTIONS /api/tus/{id}", s.tusOptions)
+	mux.HandleFunc("POST /api/tus", s.withUser(s.tusCreate))
+	mux.HandleFunc("HEAD /api/tus/{id}", s.withUser(s.tusHead))
+	mux.HandleFunc("PATCH /api/tus/{id}", s.withUser(s.tusPatch))
+	mux.HandleFunc("DELETE /api/tus/{id}", s.withUser(s.tusDelete))
+
+	return s.logRequests(s.devLatency(securityHeaders(mux)))
+}
+
+func (s *Server) health(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Referrer-Policy", "same-origin")
+		next.ServeHTTP(w, r)
+	})
+}
+
+func writeJSON(w http.ResponseWriter, status int, value any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
+}
+
+func writeError(w http.ResponseWriter, status int, message string) {
+	writeJSON(w, status, map[string]string{"error": message})
+}
+
+func decodeJSON(r *http.Request, target any) error {
+	defer r.Body.Close()
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(target)
+}
+
+func statusForError(err error) int {
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		return http.StatusNotFound
+	case errors.Is(err, fs.ErrNotExist):
+		return http.StatusNotFound
+	case errors.Is(err, fs.ErrExist):
+		return http.StatusConflict
+	case errors.Is(err, files.ErrInvalidPath), errors.Is(err, files.ErrEscapesRoot):
+		return http.StatusBadRequest
+	case errors.Is(err, http.ErrMissingFile):
+		return http.StatusNotFound
+	default:
+		return http.StatusInternalServerError
+	}
+}

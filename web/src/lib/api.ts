@@ -1,0 +1,359 @@
+export type User = {
+  id: number;
+  username: string;
+  is_admin: boolean;
+  disabled: boolean;
+  home_root: string;
+};
+
+export type FileEntry = {
+  name: string;
+  path: string;
+  type: "file" | "dir";
+  size: number;
+  modified_at: string;
+  mime_type?: string;
+  preview_kind?: string;
+};
+
+export type LoginResponse = {
+  token: string;
+  user: User;
+};
+
+export type ListResponse = {
+  path: string;
+  entries: FileEntry[];
+};
+
+export type TrashItem = {
+  id: string;
+  user_id: number;
+  original_path: string;
+  original_name: string;
+  is_dir: boolean;
+  size: number;
+  deleted_at: string;
+};
+
+export type AdminJob = {
+  id: string;
+  type: string;
+  status: string;
+  started_at: string;
+  finished_at?: string;
+  total: number;
+  total_known: boolean;
+  done: number;
+  failed: number;
+  message: string;
+};
+
+export type AdminStats = {
+  users: {
+    total: number;
+    disabled: number;
+  };
+  index: {
+    indexed_files: number;
+    indexed_directories: number;
+    indexed_bytes: number;
+    preview_candidates: number;
+  };
+  trash: {
+    items: number;
+    bytes: number;
+  };
+  preview_cache: {
+    files: number;
+    bytes: number;
+  };
+  current_job?: AdminJob | null;
+};
+
+export type UploadProgress = {
+  loaded: number;
+  total: number;
+  percent: number;
+};
+
+export type UploadTransport = {
+  fetch?: typeof fetch;
+  xhrFactory?: () => XMLHttpRequest;
+};
+
+const TOKEN_KEY = "godrive_token";
+
+let token = localStorage.getItem(TOKEN_KEY) || "";
+
+export function currentToken() {
+  return token;
+}
+
+export function setToken(value: string) {
+  token = value;
+  if (value) {
+    localStorage.setItem(TOKEN_KEY, value);
+  } else {
+    localStorage.removeItem(TOKEN_KEY);
+  }
+}
+
+type APIOptions = Omit<RequestInit, "body"> & {
+  body?: BodyInit | Record<string, unknown> | null;
+};
+
+export async function api<T>(path: string, options: APIOptions = {}): Promise<T> {
+  const headers = new Headers(options.headers);
+  headers.set("Accept", "application/json");
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  let body = options.body;
+  if (body && typeof body === "object" && !(body instanceof Blob) && !(body instanceof FormData) && !(body instanceof URLSearchParams)) {
+    headers.set("Content-Type", "application/json");
+    body = JSON.stringify(body);
+  }
+
+  const response = await fetch(path, {
+    ...options,
+    headers,
+    body: body as BodyInit | undefined
+  });
+
+  if (!response.ok) {
+    throw new Error(await errorMessage(response));
+  }
+  if (response.status === 204) {
+    return {} as T;
+  }
+  return response.json() as Promise<T>;
+}
+
+export async function login(username: string, password: string) {
+  const response = await api<LoginResponse>("/api/auth/login", {
+    method: "POST",
+    body: { username, password }
+  });
+  setToken(response.token);
+  return response.user;
+}
+
+export async function logout() {
+  try {
+    await api("/api/auth/logout", { method: "POST" });
+  } finally {
+    setToken("");
+  }
+}
+
+export async function me() {
+  const response = await api<{ user: User }>("/api/me");
+  return response.user;
+}
+
+export async function listFiles(path: string) {
+  return api<ListResponse>(`/api/files/list?path=${encodeURIComponent(path || "/")}`);
+}
+
+export async function mkdir(path: string) {
+  return api<{ entry: FileEntry }>("/api/files/mkdir", {
+    method: "POST",
+    body: { path }
+  });
+}
+
+export async function move(from: string, to: string) {
+  return api<{ entry: FileEntry }>("/api/files/move", {
+    method: "POST",
+    body: { from, to }
+  });
+}
+
+export async function bulkDelete(paths: string[]) {
+  return api<{ results: Array<{ path: string; ok: boolean; error?: string }> }>("/api/files/bulk/delete", {
+    method: "POST",
+    body: { paths }
+  });
+}
+
+export async function bulkMove(paths: string[], targetDir: string) {
+  return api<{ results: Array<{ path: string; ok: boolean; error?: string }> }>("/api/files/bulk/move", {
+    method: "POST",
+    body: { paths, target_dir: targetDir }
+  });
+}
+
+export function downloadURL(path: string) {
+  return `/api/files/download?path=${encodeURIComponent(path)}`;
+}
+
+export function thumbnailURL(path: string, size: number) {
+  return `/api/files/thumbnail?path=${encodeURIComponent(path)}&size=${size}`;
+}
+
+export async function downloadBlob(path: string) {
+  const response = await fetch(downloadURL(path), {
+    headers: authHeaders()
+  });
+  if (!response.ok) {
+    throw new Error(await errorMessage(response));
+  }
+  return response.blob();
+}
+
+export async function listTrash() {
+  return api<{ items: TrashItem[] }>("/api/trash");
+}
+
+export async function restoreTrash(id: string) {
+  return api<{ entry: FileEntry }>(`/api/trash/${encodeURIComponent(id)}/restore`, {
+    method: "POST"
+  });
+}
+
+export async function deleteTrash(id: string) {
+  return api<{ status: string }>(`/api/trash/${encodeURIComponent(id)}`, {
+    method: "DELETE"
+  });
+}
+
+export async function adminStats() {
+  return api<AdminStats>("/api/admin/stats");
+}
+
+export async function currentAdminJob() {
+  return api<{ job: AdminJob | null }>("/api/admin/jobs/current");
+}
+
+export async function startReindex() {
+  return api<{ job: AdminJob }>("/api/admin/jobs/reindex", {
+    method: "POST"
+  });
+}
+
+export async function startPreviewWarmup() {
+  return api<{ job: AdminJob }>("/api/admin/jobs/preview-warmup", {
+    method: "POST"
+  });
+}
+
+export async function uploadTus(file: File, targetPath: string, onProgress?: (progress: UploadProgress) => void, transport: UploadTransport = {}) {
+  const doFetch = transport.fetch || fetch;
+  const createResponse = await doFetch(`/api/tus?path=${encodeURIComponent(targetPath)}`, {
+    method: "POST",
+    headers: {
+      ...authHeaderObject(),
+      "Tus-Resumable": "1.0.0",
+      "Upload-Length": String(file.size),
+      "Upload-Metadata": `filename ${base64Utf8(file.name)}`
+    }
+  });
+  if (!createResponse.ok) {
+    throw new Error(await errorMessage(createResponse));
+  }
+
+  const location = createResponse.headers.get("Location");
+  if (!location) {
+    throw new Error("Upload endpoint did not return Location");
+  }
+  if (file.size === 0) {
+    onProgress?.({ loaded: 0, total: 0, percent: 100 });
+    return "";
+  }
+
+  return uploadTusPatch(location, file, onProgress, transport.xhrFactory);
+}
+
+export function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+export function joinPath(parent: string, name: string) {
+  const cleanParent = parent && parent !== "/" ? parent.replace(/\/+$/, "") : "";
+  return `${cleanParent}/${name}`;
+}
+
+export function parentPath(path: string) {
+  if (!path || path === "/") {
+    return "/";
+  }
+  const parts = path.split("/").filter(Boolean);
+  parts.pop();
+  return parts.length === 0 ? "/" : `/${parts.join("/")}`;
+}
+
+export function authHeaders() {
+  return new Headers(authHeaderObject());
+}
+
+function authHeaderObject(): Record<string, string> {
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function errorMessage(response: Response) {
+  try {
+    const data = await response.json();
+    return data.error || response.statusText || "Request failed";
+  } catch {
+    return response.statusText || "Request failed";
+  }
+}
+
+function uploadTusPatch(location: string, file: File, onProgress?: (progress: UploadProgress) => void, xhrFactory: () => XMLHttpRequest = () => new XMLHttpRequest()) {
+  return new Promise<string>((resolve, reject) => {
+    const xhr = xhrFactory();
+    xhr.open("PATCH", location);
+    for (const [key, value] of Object.entries(authHeaderObject())) {
+      xhr.setRequestHeader(key, value);
+    }
+    xhr.setRequestHeader("Tus-Resumable", "1.0.0");
+    xhr.setRequestHeader("Content-Type", "application/offset+octet-stream");
+    xhr.setRequestHeader("Upload-Offset", "0");
+
+    xhr.upload.onprogress = event => {
+      const total = event.lengthComputable ? event.total : file.size;
+      const loaded = event.loaded;
+      const percent = total > 0 ? Math.min(99, Math.round((loaded / total) * 100)) : 0;
+      onProgress?.({ loaded, total, percent });
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        onProgress?.({ loaded: file.size, total: file.size, percent: 100 });
+        resolve(xhr.getResponseHeader("Upload-Final-Path") || "");
+        return;
+      }
+      reject(new Error(xhrErrorMessage(xhr)));
+    };
+    xhr.onerror = () => reject(new Error("Upload failed"));
+    xhr.onabort = () => reject(new Error("Upload cancelled"));
+    xhr.send(file);
+  });
+}
+
+function xhrErrorMessage(xhr: XMLHttpRequest) {
+  try {
+    const data = JSON.parse(xhr.responseText);
+    return data.error || xhr.statusText || "Request failed";
+  } catch {
+    return xhr.statusText || "Request failed";
+  }
+}
+
+function base64Utf8(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}
