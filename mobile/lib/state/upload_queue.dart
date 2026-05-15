@@ -286,53 +286,71 @@ class UploadQueue extends ChangeNotifier {
 
   Future<void> _uploadOne(UploadItem item, TusClient tus,
       {void Function(String path)? onComplete}) async {
-    item.status = UploadStatus.uploading;
-    notifyListeners();
+    const maxAutoRetries = 3;
+    const backoffSeconds = [5, 15, 45];
 
-    try {
-      String? finalPath;
+    for (var attempt = 0; attempt <= maxAutoRetries; attempt++) {
+      if (attempt > 0) {
+        item.error = 'Retrying ($attempt/$maxAutoRetries)…';
+        notifyListeners();
+        await Future<void>.delayed(Duration(seconds: backoffSeconds[attempt - 1]));
+      }
 
-      if (item.tusUrl != null) {
-        try {
-          finalPath = await tus.resume(item.tusUrl!, item.file!,
-              onProgress: (sent, total) {
-            item.progress = total > 0 ? sent / total : 0;
-            notifyListeners();
-          });
-        } on ApiException catch (e) {
-          if (e.message == 'upload_gone') {
-            item.tusUrl = null;
-          } else {
-            rethrow;
+      item.status = UploadStatus.uploading;
+      item.progress = 0;
+      notifyListeners();
+
+      try {
+        String? finalPath;
+
+        if (item.tusUrl != null) {
+          try {
+            finalPath = await tus.resume(item.tusUrl!, item.file!,
+                onProgress: (sent, total) {
+              item.progress = total > 0 ? sent / total : 0;
+              notifyListeners();
+            });
+          } on ApiException catch (e) {
+            if (e.message == 'upload_gone') {
+              item.tusUrl = null;
+            } else {
+              rethrow;
+            }
           }
         }
-      }
 
-      if (finalPath == null && item.tusUrl == null) {
-        finalPath = await tus.upload(
-          item.file!,
-          item.targetPath,
-          onProgress: (sent, total) {
-            item.progress = total > 0 ? sent / total : 0;
-            notifyListeners();
-          },
-          onCreated: (url) {
-            item.tusUrl = url;
-            unawaited(_persist());
-          },
-        );
-      }
+        if (finalPath == null && item.tusUrl == null) {
+          finalPath = await tus.upload(
+            item.file!,
+            item.targetPath,
+            onProgress: (sent, total) {
+              item.progress = total > 0 ? sent / total : 0;
+              notifyListeners();
+            },
+            onCreated: (url) {
+              item.tusUrl = url;
+              unawaited(_persist());
+            },
+          );
+        }
 
-      item.status = UploadStatus.done;
-      item.progress = 1.0;
-      item.finalPath = finalPath ?? '${item.targetPath}/${item.name}';
-      onComplete?.call(item.targetPath);
-    } catch (e) {
-      item.status = UploadStatus.error;
-      item.error = e.toString();
+        item.status = UploadStatus.done;
+        item.progress = 1.0;
+        item.finalPath = finalPath ?? '${item.targetPath}/${item.name}';
+        item.error = null;
+        onComplete?.call(item.targetPath);
+        notifyListeners();
+        await _persist();
+        return;
+      } catch (e) {
+        item.error = e.toString();
+        if (attempt == maxAutoRetries) {
+          item.status = UploadStatus.error;
+          notifyListeners();
+          await _persist();
+        }
+      }
     }
-    notifyListeners();
-    await _persist();
   }
 
   void clearCompleted() {

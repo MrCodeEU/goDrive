@@ -38,6 +38,9 @@ dependencies:
   # Keep screen on during active uploads
   wakelock_plus: ^1.3.4
 
+  # Android share-sheet integration
+  receive_sharing_intent: ^1.8.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

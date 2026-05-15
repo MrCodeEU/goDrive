@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:file_picker/file_picker.dart';
@@ -13,6 +14,7 @@ import '../state/upload_queue.dart';
 import '../widgets/breadcrumb_bar.dart';
 import '../widgets/file_tile.dart';
 import '../widgets/upload_queue_sheet.dart';
+import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'admin_screen.dart';
 import 'image_viewer_screen.dart';
 import 'video_player_screen.dart';
@@ -46,12 +48,14 @@ class _FilesScreenState extends State<FilesScreen> {
   final _searchCtrl = TextEditingController();
   bool _searching = false;
   bool _gridView = false;
+  StreamSubscription? _sharingSubscription;
 
   @override
   void initState() {
     super.initState();
     _currentPath = widget.path;
     _load(_currentPath);
+    _initSharing();
   }
 
   ApiClient get _client => context.read<AuthState>().client!;
@@ -365,6 +369,73 @@ class _FilesScreenState extends State<FilesScreen> {
     }
   }
 
+  void _initSharing() {
+    // Files shared while app is open
+    _sharingSubscription = ReceiveSharingIntent.instance.getMediaStream().listen(
+      (files) => _handleSharedFiles(files),
+    );
+    // Files shared to launch the app (cold start)
+    ReceiveSharingIntent.instance.getInitialMedia().then((files) {
+      if (files.isNotEmpty) _handleSharedFiles(files);
+      ReceiveSharingIntent.instance.reset();
+    });
+  }
+
+  Future<void> _handleSharedFiles(List<SharedMediaFile> shared) async {
+    if (shared.isEmpty || !mounted) return;
+    final files = shared
+        .map((f) => File(f.path))
+        .where((f) => f.existsSync())
+        .toList();
+    if (files.isEmpty) return;
+
+    // Let user pick target folder, defaulting to current path
+    final targetPath = await _pickUploadFolder();
+    if (targetPath == null || !mounted) return;
+
+    final queue = context.read<UploadQueue>();
+    queue.enqueue(files, targetPath);
+    final tus = TusClient(_client);
+    await queue.processQueue(tus, onComplete: (_) {
+      if (mounted) _load(_currentPath);
+    });
+  }
+
+  Future<String?> _pickUploadFolder() async {
+    // Show a simple dialog with breadcrumb/current path as default
+    // User can type a path or accept current path
+    String? result = _currentPath;
+    if (!mounted) return null;
+    result = await showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        final ctrl = TextEditingController(text: _currentPath);
+        return AlertDialog(
+          title: const Text('Upload to folder'),
+          content: TextField(
+            controller: ctrl,
+            decoration: const InputDecoration(
+              labelText: 'Target folder path',
+              hintText: '/',
+            ),
+            autofocus: true,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, ctrl.text.trim().isEmpty ? '/' : ctrl.text.trim()),
+              child: const Text('Upload here'),
+            ),
+          ],
+        );
+      },
+    );
+    return result;
+  }
+
   Future<void> _pickAndUpload() async {
     final source = await showModalBottomSheet<String>(
       context: context,
@@ -666,6 +737,7 @@ class _FilesScreenState extends State<FilesScreen> {
 
   @override
   void dispose() {
+    _sharingSubscription?.cancel();
     _searchCtrl.dispose();
     super.dispose();
   }

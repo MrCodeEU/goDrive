@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../api/client.dart';
 import '../api/tus.dart';
 import '../state/auth_state.dart';
 import '../state/upload_queue.dart';
@@ -74,20 +75,12 @@ class _UploadQueueSheetState extends State<UploadQueueSheet> {
           Expanded(
             child: items.isEmpty
                 ? const Center(child: Text('No uploads'))
-                : ListView.builder(
-                    controller: scroll,
-                    itemCount: items.length,
-                    itemBuilder: (context, i) => _UploadItemTile(
-                      item: items[i],
-                      canAct: client != null,
-                      onRetry: client == null
-                          ? null
-                          : () => queue.retry(items[i], TusClient(client)),
-                      onBackground: client == null
-                          ? null
-                          : () => queue.startBackgroundUpload(items[i], client),
-                      onRemove: () => queue.remove(items[i]),
-                    ),
+                : _GroupedList(
+                    items: items,
+                    canAct: client != null,
+                    queue: queue,
+                    client: client,
+                    scroll: scroll,
                   ),
           ),
         ],
@@ -229,6 +222,103 @@ class _UploadItemTile extends StatelessWidget {
               style: const TextStyle(fontSize: 12, color: Colors.orange),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+class _GroupedList extends StatelessWidget {
+  final List<UploadItem> items;
+  final bool canAct;
+  final UploadQueue queue;
+  final ApiClient? client;
+  final ScrollController scroll;
+
+  const _GroupedList({
+    required this.items,
+    required this.canAct,
+    required this.queue,
+    required this.client,
+    required this.scroll,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final active = items
+        .where((i) =>
+            i.status == UploadStatus.uploading ||
+            i.status == UploadStatus.background)
+        .toList();
+    final queued =
+        items.where((i) => i.status == UploadStatus.queued).toList();
+    final failed = items
+        .where((i) =>
+            i.status == UploadStatus.error ||
+            i.status == UploadStatus.interrupted)
+        .toList();
+    final done =
+        items.where((i) => i.status == UploadStatus.done).toList();
+
+    final sections = <Widget>[];
+
+    void addSection(String label, Color color, List<UploadItem> sectionItems) {
+      if (sectionItems.isEmpty) return;
+      sections.add(_SectionHeader(label: label, count: sectionItems.length, color: color));
+      for (final item in sectionItems) {
+        sections.add(_UploadItemTile(
+          item: item,
+          canAct: canAct,
+          onRetry: client == null
+              ? null
+              : () => queue.retry(item, TusClient(client!)),
+          onBackground: client == null
+              ? null
+              : () => queue.startBackgroundUpload(item, client!),
+          onRemove: () => queue.remove(item),
+        ));
+      }
+    }
+
+    addSection('Uploading', Colors.blue.shade700, active);
+    addSection('Queued', Colors.grey.shade700, queued);
+    addSection('Failed', Colors.red.shade700, failed);
+    addSection('Done', Colors.green.shade700, done);
+
+    return ListView(
+      controller: scroll,
+      children: sections,
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  final String label;
+  final int count;
+  final Color color;
+
+  const _SectionHeader({required this.label, required this.count, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Row(
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 8),
+          Text(label,
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: color)),
+          const SizedBox(width: 6),
+          Text('$count',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
         ],
       ),
     );
