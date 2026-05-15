@@ -1,9 +1,5 @@
 name: Mobile
 
-# Flutter mobile builds. Android builds run in CI.
-# iOS requires macOS runners and Apple signing — see SPEC.md §Mobile Build.
-# Enable when the Flutter app exists under mobile/.
-
 on:
   push:
     branches: [main]
@@ -14,12 +10,13 @@ on:
     paths:
       - 'mobile/**'
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   android:
     name: Android
     runs-on: ubuntu-latest
-    # Remove the condition below once mobile/ exists.
-    if: false
     steps:
       - uses: actions/checkout@v4
 
@@ -30,8 +27,15 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: stable
+          channel: stable
           cache: true
+
+      - name: Cache pub dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ hashFiles('mobile/pubspec.lock') }}
+          restore-keys: pub-
 
       - name: Get dependencies
         working-directory: mobile
@@ -55,17 +59,3 @@ jobs:
           name: godrive-debug.apk
           path: mobile/build/app/outputs/flutter-apk/app-debug.apk
           retention-days: 7
-
-  # iOS requires:
-  #   runs-on: macos-latest
-  #   An Apple Developer account, distribution certificate, and provisioning profile.
-  #   Secrets: APPLE_CERTIFICATE_BASE64, APPLE_CERTIFICATE_PASSWORD, APPLE_PROVISIONING_PROFILE_BASE64
-  #   fastlane or manual xcodebuild signing setup.
-  #
-  # For local testing: open mobile/ios/Runner.xcworkspace in Xcode, select your team.
-  # For CI: consider using a self-hosted macOS runner or Codemagic/Bitrise.
-  #
-  # ios:
-  #   name: iOS
-  #   runs-on: macos-latest
-  #   ...

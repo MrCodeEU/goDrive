@@ -2,6 +2,19 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## First-time setup on a new checkout
+
+```bash
+make install-hooks   # symlinks scripts/pre-commit.sh → .git/hooks/pre-commit
+```
+
+The pre-commit hook runs on staged files only — fast for typical changes:
+- Go staged: `gofmt` check + `go vet` + `go test`
+- `web/` staged: `svelte-check`
+- `mobile/` staged: `flutter analyze`
+
+CI re-runs the same checks as a second gate (format, vet, test, type-check, build).
+
 ## Commands
 
 ### Backend

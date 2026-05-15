@@ -32,10 +32,17 @@ IOS_IPA        := /tmp/godrive-ios/godrive.ipa
         web-install web-dev web-check web-build web-test \
         mobile-install mobile-test mobile-build-android \
         emulator-start emulator-wait mobile-run mobile-dev \
-        xtool-setup xtool-auth ios-push ios-deploy ios-refresh ios-devices
+        xtool-setup xtool-auth ios-push ios-deploy ios-refresh ios-devices \
+        install-hooks
 
 GO_PACKAGES := ./...
 GO_FILES := $(shell find cmd internal -name '*.go' -type f)
+
+# Install git pre-commit hook (symlink so script updates apply immediately).
+install-hooks:
+	ln -sf ../../scripts/pre-commit.sh .git/hooks/pre-commit
+	chmod +x scripts/pre-commit.sh
+	@echo "Pre-commit hook installed."
 
 fmt:
 	gofmt -w $(GO_FILES)
