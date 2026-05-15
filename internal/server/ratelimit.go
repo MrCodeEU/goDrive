@@ -8,9 +8,9 @@ import (
 )
 
 const (
-	loginMaxAttempts = 10
-	loginWindow      = 5 * time.Minute
-	loginBlockFor    = 15 * time.Minute
+	loginMaxAttempts  = 10
+	loginWindow       = 5 * time.Minute
+	loginBlockFor     = 15 * time.Minute
 	loginCleanupEvery = time.Hour
 )
 

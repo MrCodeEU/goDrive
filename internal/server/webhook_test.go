@@ -67,8 +67,10 @@ func TestCreateAndListWebhooks(t *testing.T) {
 		t.Fatalf("create status = %d, want 201; body: %s", rec.Code, rec.Body.String())
 	}
 	var created struct {
-		Webhook struct{ ID string `json:"id"` } `json:"webhook"`
-		Secret  string                           `json:"secret"`
+		Webhook struct {
+			ID string `json:"id"`
+		} `json:"webhook"`
+		Secret string `json:"secret"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&created); err != nil {
 		t.Fatal(err)
@@ -90,7 +92,9 @@ func TestCreateAndListWebhooks(t *testing.T) {
 		t.Fatalf("list status = %d", listRec.Code)
 	}
 	var list struct {
-		Webhooks []struct{ ID string `json:"id"` } `json:"webhooks"`
+		Webhooks []struct {
+			ID string `json:"id"`
+		} `json:"webhooks"`
 	}
 	if err := json.NewDecoder(listRec.Body).Decode(&list); err != nil {
 		t.Fatal(err)
