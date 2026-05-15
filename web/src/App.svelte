@@ -1,10 +1,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import Icon from "./lib/Icon.svelte";
+  import CodeEditor from "./lib/CodeEditor.svelte";
   import {
     adminStats,
     authHeaders,
     bulkDelete,
+    saveFileContent,
     bulkDownloadBlob,
     bulkMove,
     cancelAdminJob,
@@ -116,6 +118,11 @@
   let viewerTextLoading = false;
   let viewerZoom = 1;
   let viewerOriginal = false;
+  let editorMode = false;
+  let editorContent = '';
+  let editorDirty = false;
+  let editorSaving = false;
+  let editorRef: CodeEditor | null = null;
 
   let trashOpen = false;
   let trashItems: TrashItem[] = [];
@@ -461,6 +468,9 @@
     viewerText = null;
     viewerZoom = 1;
     viewerOriginal = false;
+    editorMode = false;
+    editorContent = '';
+    editorDirty = false;
     if (entry.preview_kind === "text" || entry.preview_kind === "markdown") {
       viewerTextLoading = true;
       try {
@@ -476,6 +486,23 @@
   function closeViewer() {
     viewerFile = null;
     viewerText = null;
+    editorMode = false;
+    editorDirty = false;
+  }
+
+  async function saveEditorContent() {
+    if (!viewerFile || editorSaving) return;
+    editorSaving = true;
+    try {
+      const content = editorRef?.getValue() ?? editorContent;
+      await saveFileContent(viewerFile.path, content);
+      editorDirty = false;
+      if (viewerText) viewerText = { ...viewerText, content };
+    } catch (err) {
+      error = messageFromError(err);
+    } finally {
+      editorSaving = false;
+    }
   }
 
   function showAdjacentImage(delta: number) {
@@ -1438,6 +1465,11 @@
               </div>
               <button type="button" class:active={viewerOriginal} on:click={() => (viewerOriginal = !viewerOriginal)}>{viewerOriginal ? "Preview" : "Original"}</button>
             {/if}
+            {#if viewerFile.preview_kind === "text" || viewerFile.preview_kind === "markdown"}
+              <button type="button" on:click={() => { editorMode = !editorMode; }}>
+                {editorMode ? 'Preview' : 'Edit'}
+              </button>
+            {/if}
             <button type="button" on:click={downloadSelected}><Icon name="download" />Download</button>
             <button type="button" on:click={closeViewer}>Close</button>
           </div>
@@ -1451,9 +1483,37 @@
         {:else if viewerFile.preview_kind === "pdf"}
           <iframe src={rawFileURL(viewerFile.path)} title={viewerFile.name}></iframe>
         {:else if viewerFile.preview_kind === "text" || viewerFile.preview_kind === "markdown"}
-          <div class="text-preview">
-            {#if viewerTextLoading}<p>Loading...</p>{:else if viewerText}<pre>{viewerText.content}</pre>{:else}<p>Preview unavailable.</p>{/if}
-          </div>
+          {#if editorMode}
+            <div class="code-editor-wrap">
+              <div class="code-editor-toolbar">
+                <span>{viewerFile.path}</span>
+                <button class="cancel-btn" on:click={() => { editorMode = false; editorDirty = false; }}>Preview</button>
+                <button class="save-btn" disabled={!editorDirty || editorSaving} on:click={saveEditorContent}>
+                  {editorSaving ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+              <CodeEditor
+                bind:this={editorRef}
+                content={viewerText?.content ?? ''}
+                filename={viewerFile.name}
+                onChange={(v) => { editorContent = v; editorDirty = true; }}
+              />
+            </div>
+          {:else}
+            <div class="text-preview">
+              {#if viewerTextLoading}
+                <p>Loading...</p>
+              {:else if viewerText}
+                <div class="code-editor-toolbar">
+                  <span>{viewerFile.name}</span>
+                  <button class="cancel-btn" on:click={() => { editorMode = true; editorContent = viewerText?.content ?? ''; }}>Edit</button>
+                </div>
+                <pre>{viewerText.content}</pre>
+              {:else}
+                <p>Preview unavailable.</p>
+              {/if}
+            </div>
+          {/if}
         {:else if viewerFile.preview_kind === "3d"}
           {#await loadThreeDViewer()}
             <p>Loading 3D viewer...</p>

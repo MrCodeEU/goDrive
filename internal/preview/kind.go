@@ -22,7 +22,7 @@ func KindForName(name string) string {
 		return "pdf"
 	case ".doc", ".docx", ".odt", ".rtf", ".xls", ".xlsx", ".ods", ".ppt", ".pptx", ".odp":
 		return "office"
-	case ".glb", ".gltf", ".stl", ".obj", ".ply":
+	case ".glb", ".gltf", ".stl", ".obj", ".ply", ".3mf", ".step", ".stp":
 		return "3d"
 	default:
 		return ""

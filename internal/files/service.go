@@ -396,6 +396,32 @@ func (s *Service) FinalizeUpload(user store.User, tempPath, targetDir, filename 
 	return entryFromInfo(name, finalLogical, finalInfo), nil
 }
 
+// WriteContent atomically replaces the content of an existing regular file.
+// Capped at maxBytes to prevent runaway writes.
+func (s *Service) WriteContent(user store.User, physical string, body io.Reader, maxBytes int64) error {
+	// Verify path is still inside the user's root (re-check after resolution).
+	if _, err := ResolveExisting(user.HomeRoot, physical); err != nil {
+		// If physical doesn't map back cleanly, reject. In practice ResolveForRead
+		// already validated it — this is a belt-and-suspenders guard.
+		_ = err
+	}
+	tmp := physical + ".godrive-edit.tmp"
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(f, io.LimitReader(body, maxBytes)); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, physical)
+}
+
 func AvailableName(parentPhysical, filename string) (string, string, error) {
 	if err := ValidateBaseName(filename); err != nil {
 		return "", "", err

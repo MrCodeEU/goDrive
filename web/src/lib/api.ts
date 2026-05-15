@@ -369,6 +369,13 @@ export async function clearPreviewCache() {
   });
 }
 
+export async function saveFileContent(path: string, content: string) {
+  return api<{ path: string; modified_at: string }>(
+    `/api/files/content?path=${encodeURIComponent(path)}`,
+    { method: 'PATCH', body: content, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }
+  );
+}
+
 export async function uploadTus(file: File, targetPath: string, onProgress?: (progress: UploadProgress) => void, transport: UploadTransport = {}) {
   const doFetch = transport.fetch || fetch;
   const createResponse = await doFetch(`/api/tus?path=${encodeURIComponent(targetPath)}`, {

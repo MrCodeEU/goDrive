@@ -136,12 +136,14 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("PATCH /api/tus/{id}", s.withUser(s.tusPatch))
 	mux.HandleFunc("DELETE /api/tus/{id}", s.withUser(s.tusDelete))
 
+	mux.HandleFunc("PATCH /api/files/content", s.withUser(s.writeFileContent))
+
 	// WebDAV must not be added to mux: "/dav/" (all-methods) conflicts with
 	// "GET /" (catch-all) in Go 1.22+ mux. Intercept in the outer handler instead.
-	dav := s.withUser(s.serveWebDAV)
+	// Supports both Basic Auth (for Finder/iOS Files) and bearer/cookie auth.
 	return s.logRequests(s.devLatency(securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/dav/") || r.URL.Path == "/dav" {
-			dav.ServeHTTP(w, r)
+			s.serveWebDAVHTTP(w, r)
 			return
 		}
 		mux.ServeHTTP(w, r)
