@@ -673,3 +673,63 @@ kbd {
   border-radius: 5px; font-family: 'Fira Code', monospace;
   font-size: 11px; color: var(--text-1); white-space: nowrap;
 }
+
+/* ── Toast notifications ── */
+.toast-container {
+  position: fixed; bottom: 24px; left: 24px; z-index: 300;
+  display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+}
+.toast {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; border-radius: var(--radius-md);
+  font-size: 13px; font-weight: 500; pointer-events: all;
+  box-shadow: 0 4px 20px rgba(0,0,0,.4);
+  animation: toastIn .2s ease;
+}
+@keyframes toastIn { from { transform: translateX(-20px); opacity: 0; } }
+.toast-success { background: #14532d; color: #86efac; border: 1px solid rgba(134,239,172,.2); }
+.toast-error   { background: #450a0a; color: #fca5a5; border: 1px solid rgba(252,165,165,.2); }
+.toast-info    { background: var(--bg-3); color: var(--text-1); border: 1px solid var(--border-2); }
+.toast button  { border: none; background: transparent; color: inherit; opacity: .6; font-size: 16px; line-height: 1; padding: 0 2px; pointer-events: all; cursor: pointer; }
+.toast button:hover { opacity: 1; }
+
+/* ── Context menu ── */
+.context-menu {
+  position: fixed; z-index: 400; min-width: 160px;
+  background: var(--bg-2); border: 1px solid var(--border-2);
+  border-radius: var(--radius-md); box-shadow: 0 8px 32px rgba(0,0,0,.5);
+  padding: 4px; display: flex; flex-direction: column;
+  animation: scaleIn .12s ease;
+}
+.context-menu button {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; border: none; background: transparent;
+  color: var(--text-1); font-size: 13px; font-weight: 450;
+  border-radius: var(--radius-sm); text-align: left;
+  transition: background .1s;
+}
+.context-menu button:hover { background: var(--bg-3); }
+.context-danger { color: var(--error) !important; }
+.context-divider { height: 1px; background: var(--border); margin: 3px 0; }
+
+/* ── Infinite scroll sentinel ── */
+.load-sentinel { height: 40px; }
+
+/* ── Info panel ── */
+.info-panel { max-width: 380px !important; }
+.info-rows { padding: 8px 20px 20px; display: flex; flex-direction: column; gap: 1px; }
+.info-row {
+  display: flex; align-items: baseline; gap: 12px;
+  padding: 8px 0; border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.info-row:last-child { border-bottom: none; }
+.info-row > span { width: 72px; flex-shrink: 0; color: var(--text-2); font-size: 12px; }
+.info-row strong { flex: 1; color: var(--text-1); font-weight: 450; word-break: break-all; }
+.info-path { display: flex; align-items: center; gap: 6px; font-family: 'Fira Code', monospace; font-size: 11px; }
+.info-copy { border: none; background: transparent; color: var(--text-2); cursor: pointer; font-size: 14px; padding: 0 2px; }
+.info-copy:hover { color: var(--accent); }
+.info-mono { font-family: 'Fira Code', monospace; font-size: 11px; }
+
+/* ── Drag-to-move tree target ── */
+.tree-row.drag-target { background: var(--accent-dim); outline: 1px solid rgba(249,115,22,.4); }

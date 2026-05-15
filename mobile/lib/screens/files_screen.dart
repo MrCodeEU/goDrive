@@ -4,8 +4,10 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../api/client.dart';
 import '../api/models.dart';
@@ -53,6 +55,14 @@ class _FilesScreenState extends State<FilesScreen> {
   final Set<String> _selectedPaths = {};
   final _scrollCtrl = ScrollController();
   bool _fabVisible = true;
+  // Sort & filter
+  String _sortBy = 'name'; // 'name', 'size', 'modified', 'type'
+  bool _sortAsc = true;
+  String _filterType = 'all'; // 'all', 'folders', 'images', 'videos', 'documents', 'text', '3d', 'other'
+  // Recently visited
+  List<String> _recentPaths = [];
+  // Search filter
+  String _searchFilter = 'all';
 
   @override
   void initState() {
@@ -61,6 +71,7 @@ class _FilesScreenState extends State<FilesScreen> {
     _load(_currentPath);
     _initSharing();
     _scrollCtrl.addListener(_onScroll);
+    _loadRecentPaths();
   }
 
   void _onScroll() {
@@ -93,6 +104,7 @@ class _FilesScreenState extends State<FilesScreen> {
           _total = page.total;
           _loading = false;
         });
+        if (path != '/') _saveRecentPath(path);
       }
     } on ApiException catch (e) {
       if (mounted) {
@@ -239,6 +251,15 @@ class _FilesScreenState extends State<FilesScreen> {
                   leading: const Icon(Icons.open_in_new),
                   title: const Text('Open externally'),
                   onTap: () => Navigator.pop(context, 'open')),
+            ListTile(
+              leading: const Icon(Icons.content_copy_outlined),
+              title: const Text('Copy path'),
+              onTap: () {
+                Navigator.pop(context);
+                Clipboard.setData(ClipboardData(text: entry.path));
+                _showSnack('Path copied to clipboard');
+              },
+            ),
             ListTile(
                 leading: const Icon(Icons.drive_file_rename_outline),
                 title: const Text('Rename'),
@@ -658,6 +679,7 @@ class _FilesScreenState extends State<FilesScreen> {
       _loading = true;
       _error = null;
       _searching = true;
+      _searchFilter = 'all';
     });
     try {
       final results = await _client.searchFiles(query);
@@ -679,6 +701,149 @@ class _FilesScreenState extends State<FilesScreen> {
 
   void _showSnack(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  // ── Sort / filter ──────────────────────────────────────────────────────────
+
+  List<FileEntry> _sortedFilteredEntries() {
+    var list = _entries.where((e) {
+      if (_filterType == 'all') return true;
+      if (_filterType == 'folders') return e.isDir;
+      if (e.isDir) return false;
+      final k = e.previewKind ?? '';
+      return switch (_filterType) {
+        'images' => k == 'image' || k == 'raw',
+        'videos' => k == 'video',
+        'documents' => k == 'pdf' || k == 'office',
+        'text' => k == 'text' || k == 'markdown',
+        '3d' => k == '3d',
+        _ => !['image', 'raw', 'video', 'pdf', 'office', 'text', 'markdown', '3d'].contains(k),
+      };
+    }).toList();
+
+    list.sort((a, b) {
+      if (a.isDir != b.isDir) return a.isDir ? -1 : 1;
+      int cmp = switch (_sortBy) {
+        'size' => a.size.compareTo(b.size),
+        'modified' => a.modifiedAt.compareTo(b.modifiedAt),
+        'type' => (a.previewKind ?? '').compareTo(b.previewKind ?? ''),
+        _ => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      };
+      return _sortAsc ? cmp : -cmp;
+    });
+    return list;
+  }
+
+  void _showSortFilterSheet() {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Sort by', style: Theme.of(ctx).textTheme.titleSmall),
+                const SizedBox(height: 8),
+                Wrap(spacing: 8, children: [
+                  for (final opt in [
+                    ('name', 'Name'),
+                    ('size', 'Size'),
+                    ('modified', 'Modified'),
+                    ('type', 'Type'),
+                  ])
+                    ChoiceChip(
+                      label: Text(opt.$2),
+                      selected: _sortBy == opt.$1,
+                      onSelected: (_) => setState(() {
+                        if (_sortBy == opt.$1) {
+                          _sortAsc = !_sortAsc;
+                        } else {
+                          _sortBy = opt.$1;
+                          _sortAsc = true;
+                        }
+                        setModalState(() {});
+                      }),
+                      avatar: _sortBy == opt.$1
+                          ? Icon(
+                              _sortAsc ? Icons.arrow_upward : Icons.arrow_downward,
+                              size: 14,
+                            )
+                          : null,
+                    ),
+                ]),
+                const SizedBox(height: 16),
+                Text('Filter', style: Theme.of(ctx).textTheme.titleSmall),
+                const SizedBox(height: 8),
+                Wrap(spacing: 8, children: [
+                  for (final opt in [
+                    ('all', 'All'),
+                    ('folders', 'Folders'),
+                    ('images', 'Images'),
+                    ('videos', 'Videos'),
+                    ('documents', 'Docs'),
+                    ('text', 'Text'),
+                    ('3d', '3D'),
+                    ('other', 'Other'),
+                  ])
+                    ChoiceChip(
+                      label: Text(opt.$2),
+                      selected: _filterType == opt.$1,
+                      onSelected: (_) => setState(() {
+                        _filterType = opt.$1;
+                        setModalState(() {});
+                      }),
+                    ),
+                ]),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Recent paths ───────────────────────────────────────────────────────────
+
+  Future<void> _loadRecentPaths() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (mounted) {
+        setState(() {
+          _recentPaths = prefs.getStringList('godrive_recent_paths') ?? [];
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _saveRecentPath(String path) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final updated = [path, ..._recentPaths.where((p) => p != path)].take(5).toList();
+      await prefs.setStringList('godrive_recent_paths', updated);
+      if (mounted) setState(() => _recentPaths = updated);
+    } catch (_) {}
+  }
+
+  // ── Search filter ──────────────────────────────────────────────────────────
+
+  List<FileEntry> get _filteredSearchResults {
+    if (_searchFilter == 'all') return _entries;
+    return _entries.where((e) {
+      if (_searchFilter == 'folders') return e.isDir;
+      if (e.isDir) return false;
+      final k = e.previewKind ?? '';
+      return switch (_searchFilter) {
+        'images' => k == 'image' || k == 'raw',
+        'videos' => k == 'video',
+        'documents' => k == 'pdf' || k == 'office',
+        'text' => k == 'text' || k == 'markdown',
+        _ => false,
+      };
+    }).toList();
   }
 
   @override
@@ -728,6 +893,11 @@ class _FilesScreenState extends State<FilesScreen> {
                 actions: [
                   if (!_searching) ...[
                     IconButton(
+                      icon: const Icon(Icons.tune_outlined),
+                      tooltip: 'Sort & filter',
+                      onPressed: _showSortFilterSheet,
+                    ),
+                    IconButton(
                       icon:
                           Icon(_gridView ? Icons.view_list : Icons.grid_view),
                       tooltip: _gridView ? 'List view' : 'Grid view',
@@ -773,6 +943,10 @@ class _FilesScreenState extends State<FilesScreen> {
                       if (v == 'trash') _showTrash();
                       if (v == 'admin') _showAdmin();
                       if (v == 'logout') context.read<AuthState>().logout();
+                      if (v.startsWith('recent:')) {
+                        _navigate(v.substring(7));
+                        return;
+                      }
                     },
                     itemBuilder: (_) => [
                       const PopupMenuItem(value: 'trash', child: Text('Trash')),
@@ -782,6 +956,23 @@ class _FilesScreenState extends State<FilesScreen> {
                       PopupMenuItem(
                           value: 'logout',
                           child: Text('Sign out (${user?.username ?? ''})')),
+                      if (_recentPaths.isNotEmpty) ...[
+                        const PopupMenuDivider(),
+                        const PopupMenuItem(
+                          value: '__recent_header',
+                          enabled: false,
+                          child: Text('Recent', style: TextStyle(fontSize: 11)),
+                        ),
+                        for (final p in _recentPaths)
+                          PopupMenuItem(
+                            value: 'recent:$p',
+                            child: Text(
+                              p,
+                              style: const TextStyle(fontSize: 13),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
                     ],
                   ),
                 ],
@@ -866,7 +1057,63 @@ class _FilesScreenState extends State<FilesScreen> {
         ),
       );
     }
-    if (_gridView) return _gridBody();
+    if (_gridView && !_searching) return _gridBody();
+
+    // Search results with filter chips
+    if (_searching) {
+      final results = _filteredSearchResults;
+      return Column(
+        children: [
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            child: Row(children: [
+              for (final opt in [
+                ('all', 'All'),
+                ('folders', 'Folders'),
+                ('images', 'Images'),
+                ('videos', 'Videos'),
+                ('documents', 'Docs'),
+                ('text', 'Text'),
+              ])
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: FilterChip(
+                    label: Text(opt.$2),
+                    selected: _searchFilter == opt.$1,
+                    onSelected: (_) => setState(() => _searchFilter = opt.$1),
+                  ),
+                ),
+            ]),
+          ),
+          Expanded(
+            child: results.isEmpty
+                ? const Center(child: Text('No results'))
+                : ListView.separated(
+                    controller: _scrollCtrl,
+                    itemCount: results.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1, indent: 68),
+                    itemBuilder: (context, i) {
+                      final entry = results[i];
+                      return FileTile(
+                        entry: entry,
+                        thumbnailUrl: _supportsThumbnail(entry)
+                            ? _client.thumbnailUrl(entry.path, 96)
+                            : '',
+                        authHeaders: _client.authHeader,
+                        onTap: () => entry.isDir ? _navigate(entry.path) : _openFile(entry),
+                        onLongPress: () => _showFileActions(entry),
+                        isSelected: false,
+                        inSelectionMode: false,
+                      );
+                    },
+                  ),
+          ),
+        ],
+      );
+    }
+
+    final displayEntries = _sortedFilteredEntries();
     return RefreshIndicator(
       onRefresh: () async {
         await _load(_currentPath);
@@ -882,10 +1129,10 @@ class _FilesScreenState extends State<FilesScreen> {
       },
       child: ListView.separated(
         controller: _scrollCtrl,
-        itemCount: _entries.length,
+        itemCount: displayEntries.length,
         separatorBuilder: (_, __) => const Divider(height: 1, indent: 68),
         itemBuilder: (context, i) {
-          final entry = _entries[i];
+          final entry = displayEntries[i];
           final isSelected = _selectedPaths.contains(entry.path);
           final inSelectionMode = _selectedPaths.isNotEmpty;
           final tile = FileTile(
@@ -953,6 +1200,7 @@ class _FilesScreenState extends State<FilesScreen> {
   }
 
   Widget _gridBody() {
+    final displayEntries = _sortedFilteredEntries();
     return RefreshIndicator(
       onRefresh: () async {
         await _load(_currentPath);
@@ -973,14 +1221,35 @@ class _FilesScreenState extends State<FilesScreen> {
           mainAxisSpacing: 2,
           crossAxisSpacing: 2,
         ),
-        itemCount: _entries.length,
+        itemCount: displayEntries.length,
         itemBuilder: (context, i) {
-          final entry = _entries[i];
+          final entry = displayEntries[i];
+          final isSelected = _selectedPaths.contains(entry.path);
+          final inSelectionMode = _selectedPaths.isNotEmpty;
           return _GridCell(
             entry: entry,
             client: _client,
-            onTap: () => entry.isDir ? _navigate(entry.path) : _openFile(entry),
-            onLongPress: () => _showFileActions(entry),
+            isSelected: isSelected,
+            onTap: () {
+              if (inSelectionMode) {
+                setState(() {
+                  if (isSelected) {
+                    _selectedPaths.remove(entry.path);
+                  } else {
+                    _selectedPaths.add(entry.path);
+                  }
+                });
+              } else {
+                entry.isDir ? _navigate(entry.path) : _openFile(entry);
+              }
+            },
+            onLongPress: () {
+              if (inSelectionMode) {
+                _showFileActions(entry);
+              } else {
+                setState(() => _selectedPaths.add(entry.path));
+              }
+            },
           );
         },
       ),
@@ -1164,12 +1433,14 @@ class _GridCell extends StatelessWidget {
   final ApiClient client;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
+  final bool isSelected;
 
   const _GridCell({
     required this.entry,
     required this.client,
     required this.onTap,
     required this.onLongPress,
+    this.isSelected = false,
   });
 
   @override
@@ -1205,6 +1476,9 @@ class _GridCell extends StatelessWidget {
             )
           else
             _fallbackIcon(),
+          // Selection overlay
+          if (isSelected)
+            Container(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35)),
           // Name overlay at bottom
           Positioned(
             left: 0,
@@ -1229,10 +1503,24 @@ class _GridCell extends StatelessWidget {
             ),
           ),
           // Video play icon overlay
-          if (entry.previewKind == 'video')
+          if (entry.previewKind == 'video' && !isSelected)
             const Center(
               child: Icon(Icons.play_circle_outline,
                   color: Colors.white70, size: 32),
+            ),
+          // Selection checkmark
+          if (isSelected)
+            Positioned(
+              top: 6,
+              right: 6,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primary,
+                  shape: BoxShape.circle,
+                ),
+                padding: const EdgeInsets.all(2),
+                child: const Icon(Icons.check, color: Colors.white, size: 16),
+              ),
             ),
         ],
       ),

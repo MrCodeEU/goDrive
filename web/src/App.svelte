@@ -100,7 +100,9 @@
   let openTree = new Set<string>(["/"]);
   let selectedIds: string[] = [];
   let anchorId = "";
-  let viewMode: "grid" | "list" = "grid";
+  let viewMode: "grid" | "list" = (() => {
+    try { return (localStorage.getItem('godrive_view') as "grid" | "list") || "grid"; } catch { return "grid"; }
+  })();
   let sortOption: SortOption = "name_asc";
   let fileTypeFilter: FileTypeFilter = "all";
 
@@ -145,6 +147,45 @@
   let fileEvents: AbortController | null = null;
   let liveRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
+  type Toast = { id: number; message: string; type: 'success' | 'error' | 'info' };
+  let toasts: Toast[] = [];
+  let toastSeq = 0;
+
+  type ContextMenu = { x: number; y: number; entry: FileEntry };
+  let contextMenu: ContextMenu | null = null;
+
+  let infoEntry: FileEntry | null = null;
+  let sentinelEl: HTMLElement | null = null;
+  let loadMoreObserver: IntersectionObserver | null = null;
+  let dragTargetPath: string | null = null;
+
+  function addToast(message: string, type: Toast['type'] = 'success') {
+    const id = ++toastSeq;
+    toasts = [...toasts, { id, message, type }];
+    setTimeout(() => { toasts = toasts.filter(t => t.id !== id); }, 3000);
+  }
+
+  function openContextMenu(event: MouseEvent, entry: FileEntry) {
+    event.preventDefault();
+    contextMenu = { x: event.clientX, y: event.clientY, entry };
+  }
+
+  function closeContextMenu() { contextMenu = null; }
+
+  async function copyPath(path: string) {
+    try {
+      await navigator.clipboard.writeText(path);
+      addToast('Path copied to clipboard', 'info');
+    } catch {
+      addToast('Failed to copy path', 'error');
+    }
+  }
+
+  function observeSentinel(node: HTMLElement) {
+    loadMoreObserver?.observe(node);
+    return { destroy() { loadMoreObserver?.unobserve(node); } };
+  }
+
   $: visibleEntries = sortEntries(filterEntries(entries, fileTypeFilter), sortOption);
   $: visibleTree = treeRows(treeEntries, entries, currentPath, openTree);
   $: treeChildPaths = new Set(
@@ -170,16 +211,27 @@
       event.returnValue = "";
     };
     const onKeyDown = (event: KeyboardEvent) => handleGlobalKeydown(event);
+    const closeCtx = () => closeContextMenu();
     window.addEventListener("popstate", onPopState);
     window.addEventListener("beforeunload", onBeforeUnload);
     window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("click", closeCtx);
+
+    loadMoreObserver = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && folderHasMore && !busy) {
+        void loadMoreFolder();
+      }
+    }, { rootMargin: '200px' });
+
     void restoreSession();
     return () => {
       window.removeEventListener("popstate", onPopState);
       window.removeEventListener("beforeunload", onBeforeUnload);
       window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("click", closeCtx);
       stopFileEvents();
       stopAdminPolling();
+      loadMoreObserver?.disconnect();
     };
   });
 
@@ -325,6 +377,7 @@
       await runAction("Creating folder", async () => {
         await mkdir(joinPath(currentPath, value));
         await refreshCurrentFolder();
+        addToast('Folder created');
       });
       return;
     }
@@ -334,6 +387,7 @@
       await runAction("Renaming", async () => {
         await move(entry.path, joinPath(parentPath(entry.path), value));
         await refreshCurrentFolder();
+        addToast('Moved successfully');
       });
       return;
     }
@@ -342,13 +396,16 @@
         const response = await bulkMove(selectedIds, normalizePath(value));
         assertBulkSuccess(response.results);
         await refreshCurrentFolder();
+        addToast('Moved successfully');
       });
       return;
     }
+    const deleteCount = selectedIds.length;
     await runAction("Moving to trash", async () => {
       const response = await bulkDelete(selectedIds);
       assertBulkSuccess(response.results);
       await refreshCurrentFolder();
+      addToast(`${deleteCount} item(s) moved to trash`);
     });
   }
 
@@ -541,6 +598,7 @@
       await restoreTrash(item.id);
       trashSelectedIds = trashSelectedIds.filter(id => id !== item.id);
       await Promise.all([refreshTrash(), refreshCurrentFolder()]);
+      addToast('Restored');
     } catch (err) {
       error = messageFromError(err);
     } finally {
@@ -833,11 +891,16 @@
     } else if ((event.ctrlKey || event.metaKey) && event.shiftKey && key === "n") {
       event.preventDefault();
       void createFolder();
+    } else if (event.key === 'i' && selectedIds.length === 1 && !viewerFile) {
+      event.preventDefault();
+      infoEntry = entryByPath(selectedIds[0]);
     } else if (event.key === '?' && !shouldIgnoreShortcut(event.target)) {
       event.preventDefault();
       shortcutsOpen = !shortcutsOpen;
     } else if (event.key === "Escape") {
       if (shortcutsOpen) shortcutsOpen = false;
+      else if (infoEntry) infoEntry = null;
+      else if (contextMenu) contextMenu = null;
       else if (actionDialog) actionDialog = null;
       else if (viewerFile) closeViewer();
       else if (trashOpen) {
@@ -1296,7 +1359,23 @@
           <div class="tree-empty">No folders found</div>
         {:else}
           {#each visibleTree as row (row.path)}
-          <div class="tree-row" class:active={currentPath === row.path} style={`--level: ${row.level}`}>
+          <div class="tree-row" role="listitem" class:active={currentPath === row.path} class:drag-target={dragTargetPath === row.path} style={`--level: ${row.level}`}
+            on:dragover|preventDefault={(e) => { e.dataTransfer!.dropEffect = 'move'; dragTargetPath = row.path; }}
+            on:dragleave={() => { dragTargetPath = null; }}
+            on:drop|preventDefault={async (e) => {
+              dragTargetPath = null;
+              const raw = e.dataTransfer!.getData('godrive/paths');
+              if (!raw) return;
+              const paths = JSON.parse(raw) as string[];
+              if (paths.includes(row.path)) return;
+              await runAction('Moving', async () => {
+                const res = await bulkMove(paths, row.path);
+                assertBulkSuccess(res.results);
+                await refreshCurrentFolder();
+                addToast(`Moved to ${row.path}`, 'success');
+              });
+            }}
+          >
             <button type="button" class="tree-toggle" on:click={() => toggleTree(row.path)} disabled={!treeChildPaths.has(row.path)}>
               {#if treeChildPaths.has(row.path)}<Icon name={openTree.has(row.path) ? "chevronDown" : "chevronRight"} />{/if}
             </button>
@@ -1333,8 +1412,8 @@
           {/each}
         </div>
         <div class="view-toggle">
-          <button class:active={viewMode === "grid"} type="button" title="Grid view" aria-label="Grid view" on:click={() => (viewMode = "grid")}><Icon name="grid" /></button>
-          <button class:active={viewMode === "list"} type="button" title="List view" aria-label="List view" on:click={() => (viewMode = "list")}><Icon name="list" /></button>
+          <button class:active={viewMode === "grid"} type="button" title="Grid view" aria-label="Grid view" on:click={() => { viewMode = "grid"; try { localStorage.setItem('godrive_view', 'grid'); } catch {} }}><Icon name="grid" /></button>
+          <button class:active={viewMode === "list"} type="button" title="List view" aria-label="List view" on:click={() => { viewMode = "list"; try { localStorage.setItem('godrive_view', 'list'); } catch {} }}><Icon name="list" /></button>
         </div>
       </div>
 
@@ -1353,6 +1432,8 @@
         <button type="button" disabled={selectedIds.length === 0} on:click={moveSelected}><Icon name="move" />Move</button>
         <button type="button" disabled={selectedIds.length === 0} on:click={downloadSelected}><Icon name="download" />Download</button>
         <button type="button" disabled={selectedIds.length === 0} on:click={deleteSelected}><Icon name="trash" />Delete</button>
+        <button type="button" disabled={selectedIds.length !== 1} on:click={() => copyPath(selectedIds[0])}><Icon name="copy" />Copy path</button>
+        <button type="button" disabled={selectedIds.length !== 1} on:click={() => (infoEntry = entryByPath(selectedIds[0]))}><Icon name="info" />Info</button>
         <div class="spacer"></div>
         <label class="control-field"><Icon name="sort" /><span>Sort</span><select bind:value={sortOption} on:change={changeSort}>
           <option value="name_asc">Name A-Z</option>
@@ -1412,8 +1493,15 @@
                 type="button"
                 class="file-card"
                 class:selected={selectedIds.includes(entry.path)}
+                draggable={true}
                 on:click={(event) => selectEntry(entry, event)}
                 on:dblclick={() => openEntry(entry)}
+                on:contextmenu={(e) => openContextMenu(e, entry)}
+                on:dragstart={(e) => {
+                  const paths = selectedIds.includes(entry.path) ? selectedIds : [entry.path];
+                  e.dataTransfer!.setData('godrive/paths', JSON.stringify(paths));
+                  e.dataTransfer!.effectAllowed = 'move';
+                }}
               >
                 <div class="thumb" class:folder={entry.type === "dir"}>
                   {#if entry.type === "dir"}
@@ -1433,15 +1521,15 @@
           <table class="file-table">
             <thead>
               <tr>
-                <th><button type="button" on:click={() => setTableSort("name")}>Name</button></th>
-                <th><button type="button" on:click={() => (sortOption = "type_asc")}>Type</button></th>
-                <th><button type="button" on:click={() => setTableSort("size")}>Size</button></th>
-                <th><button type="button" on:click={() => setTableSort("modified")}>Modified</button></th>
+                <th><button type="button" on:click={() => setTableSort("name")}>Name {sortOption==='name_asc'?'↑':sortOption==='name_desc'?'↓':''}</button></th>
+                <th><button type="button" on:click={() => (sortOption = 'type_asc')}>Type</button></th>
+                <th><button type="button" on:click={() => setTableSort("size")}>Size {sortOption==='size_asc'?'↑':sortOption==='size_desc'?'↓':''}</button></th>
+                <th><button type="button" on:click={() => setTableSort("modified")}>Modified {sortOption==='modified_asc'?'↑':sortOption==='modified_desc'?'↓':''}</button></th>
               </tr>
             </thead>
             <tbody>
               {#each visibleEntries as entry (entry.path)}
-                <tr class:selected={selectedIds.includes(entry.path)} on:click={(event) => selectEntry(entry, event)} on:dblclick={() => openEntry(entry)}>
+                <tr class:selected={selectedIds.includes(entry.path)} on:click={(event) => selectEntry(entry, event)} on:dblclick={() => openEntry(entry)} on:contextmenu={(e) => openContextMenu(e, entry)}>
                   <td>
                     <span class="list-name">
                       <span class="list-thumb" class:folder={entry.type === "dir"}>
@@ -1465,9 +1553,7 @@
           </table>
         {/if}
 
-        {#if folderHasMore}
-          <button type="button" class="load-more" on:click={loadMoreFolder}>Load more ({folderOffset}/{folderTotal})</button>
-        {/if}
+        <div bind:this={sentinelEl} class="load-sentinel" use:observeSentinel></div>
         {/if}
       </section>
     </section>
@@ -1715,6 +1801,7 @@
           <div class="shortcuts-list">
             {#each [
               ['?', 'Show this help'],
+              ['i', 'File info (1 selected)'],
               ['Ctrl+A', 'Select all'],
               ['Delete', 'Move to trash'],
               ['F2', 'Rename selected'],
@@ -1734,5 +1821,72 @@
         </section>
       </div>
     {/if}
+
+    {#if infoEntry}
+      <div class="modal-backdrop" role="presentation" tabindex="-1"
+        on:click={(e) => e.target === e.currentTarget && (infoEntry = null)}
+        on:keydown={(e) => e.key === 'Escape' && (infoEntry = null)}>
+        <section class="modal-panel info-panel">
+          <header>
+            <h2>File info</h2>
+            <button type="button" on:click={() => (infoEntry = null)}>×</button>
+          </header>
+          <div class="info-rows">
+            <div class="info-row"><span>Name</span><strong>{infoEntry.name}</strong></div>
+            <div class="info-row">
+              <span>Path</span>
+              <strong class="info-path">{infoEntry.path}
+                <button type="button" class="info-copy" on:click={() => copyPath(infoEntry!.path)} title="Copy path">⎘</button>
+              </strong>
+            </div>
+            <div class="info-row"><span>Type</span><strong>{infoEntry.type === 'dir' ? 'Folder' : fileTypeLabel(infoEntry)}</strong></div>
+            {#if infoEntry.type === 'file'}
+              <div class="info-row"><span>Size</span><strong>{formatBytes(infoEntry.size)}</strong></div>
+            {/if}
+            <div class="info-row"><span>Modified</span><strong>{formatDate(infoEntry.modified_at)}</strong></div>
+            {#if infoEntry.mime_type}
+              <div class="info-row"><span>MIME</span><strong class="info-mono">{infoEntry.mime_type}</strong></div>
+            {/if}
+            {#if infoEntry.preview_kind}
+              <div class="info-row"><span>Preview</span><strong>{infoEntry.preview_kind}</strong></div>
+            {/if}
+          </div>
+        </section>
+      </div>
+    {/if}
+
+    {#if contextMenu}
+      <div class="context-menu" style="left:{contextMenu.x}px;top:{contextMenu.y}px" role="menu">
+        <button type="button" on:click|stopPropagation={() => { openEntry(contextMenu!.entry); closeContextMenu(); }}>
+          Open
+        </button>
+        <button type="button" on:click|stopPropagation={() => { selectedIds=[contextMenu!.entry.path]; void downloadSelected(); closeContextMenu(); }}>
+          Download
+        </button>
+        <button type="button" on:click|stopPropagation={() => { copyPath(contextMenu!.entry.path); closeContextMenu(); }}>
+          Copy path
+        </button>
+        <div class="context-divider"></div>
+        <button type="button" on:click|stopPropagation={() => { selectedIds=[contextMenu!.entry.path]; void renameSelected(contextMenu!.entry); closeContextMenu(); }}>
+          Rename
+        </button>
+        <button type="button" on:click|stopPropagation={() => { selectedIds=[contextMenu!.entry.path]; void moveSelected(); closeContextMenu(); }}>
+          Move to…
+        </button>
+        <div class="context-divider"></div>
+        <button type="button" class="context-danger" on:click|stopPropagation={() => { selectedIds=[contextMenu!.entry.path]; void deleteSelected(); closeContextMenu(); }}>
+          Move to trash
+        </button>
+      </div>
+    {/if}
+
+    <div class="toast-container" aria-live="polite">
+      {#each toasts as toast (toast.id)}
+        <div class="toast toast-{toast.type}" role="alert">
+          {toast.message}
+          <button type="button" on:click={() => { toasts = toasts.filter(t => t.id !== toast.id); }}>×</button>
+        </div>
+      {/each}
+    </div>
   </main>
 {/if}
