@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -113,19 +114,18 @@ func (s *Server) listFiles(w http.ResponseWriter, r *http.Request, user store.Us
 }
 
 func (s *Server) fileTree(w http.ResponseWriter, r *http.Request, user store.User, session store.Session) {
+	seen := make(map[string]fileEntryResponse)
 	if s.store != nil {
 		entries, err := s.store.ListFileIndexDirectories(r.Context(), user.ID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to list indexed folders")
 			return
 		}
-		if len(entries) > 0 {
-			writeJSON(w, http.StatusOK, map[string]any{"entries": fileIndexEntriesToResponse(entries)})
-			return
+		for _, entry := range fileIndexEntriesToResponse(entries) {
+			seen[entry.Path] = entry
 		}
 	}
 
-	var response []fileEntryResponse
 	err := filepath.WalkDir(user.HomeRoot, func(physical string, d os.DirEntry, err error) error {
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -160,19 +160,26 @@ func (s *Server) fileTree(w http.ResponseWriter, r *http.Request, user store.Use
 		if err != nil {
 			return err
 		}
-		response = append(response, fileEntryResponse{
+		seen[logical] = fileEntryResponse{
 			Name:       path.Base(logical),
 			Path:       logical,
 			Type:       "dir",
 			Size:       info.Size(),
 			ModifiedAt: info.ModTime().UTC(),
-		})
+		}
 		return nil
 	})
 	if err != nil {
 		writeError(w, statusForError(err), err.Error())
 		return
 	}
+	response := make([]fileEntryResponse, 0, len(seen))
+	for _, entry := range seen {
+		response = append(response, entry)
+	}
+	sort.Slice(response, func(i, j int) bool {
+		return strings.ToLower(response[i].Path) < strings.ToLower(response[j].Path)
+	})
 	writeJSON(w, http.StatusOK, map[string]any{"entries": response})
 }
 
@@ -337,19 +344,7 @@ func (s *Server) searchFiles(w http.ResponseWriter, r *http.Request, user store.
 		return
 	}
 
-	response := make([]fileEntryResponse, 0, len(entries))
-	for _, entry := range entries {
-		response = append(response, fileEntryResponse{
-			Name:        entry.Name,
-			Path:        entry.Path,
-			Type:        entry.Type,
-			Size:        entry.Size,
-			ModifiedAt:  entry.ModifiedAt,
-			MimeType:    entry.MimeType,
-			PreviewKind: entry.PreviewKind,
-		})
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"query": query, "entries": response})
+	writeJSON(w, http.StatusOK, map[string]any{"query": query, "entries": fileIndexEntriesToResponse(entries)})
 }
 
 func (s *Server) mkdir(w http.ResponseWriter, r *http.Request, user store.User, session store.Session) {

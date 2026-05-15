@@ -4,6 +4,7 @@ import (
 	"embed"
 	"io/fs"
 	"net/http"
+	"strings"
 )
 
 //go:embed static/*
@@ -14,14 +15,18 @@ func (s *Server) assets() http.Handler {
 	if err != nil {
 		panic(err)
 	}
-	return http.StripPrefix("/assets/", http.FileServer(http.FS(sub)))
+	fileServer := http.StripPrefix("/assets/", http.FileServer(http.FS(sub)))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		fileServer.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) index(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
+	p := r.URL.Path
+	if p != "/" && p != "/files" && !strings.HasPrefix(p, "/files/") {
 		http.NotFound(w, r)
 		return
 	}
-
 	http.ServeFileFS(w, r, webAssets, "static/index.html")
 }

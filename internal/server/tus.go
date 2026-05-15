@@ -57,6 +57,10 @@ func (s *Server) tusCreate(w http.ResponseWriter, r *http.Request, user store.Us
 		writeError(w, statusForError(err), err.Error())
 		return
 	}
+	if s.cfg.MaxUploadBytes > 0 && uploadLength > s.cfg.MaxUploadBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("upload exceeds maximum allowed size of %d bytes", s.cfg.MaxUploadBytes))
+		return
+	}
 
 	id, err := auth.RandomID(16)
 	if err != nil {
@@ -280,7 +284,7 @@ func (s *Server) completeUpload(r *http.Request, user store.User, id string) (fi
 		return files.Entry{}, err
 	}
 	s.refreshIndexPath(r.Context(), user, entry.Path)
-	if entry.PreviewKind == "image" || entry.PreviewKind == "video" || entry.PreviewKind == "pdf" {
+	if entry.PreviewKind == "image" || entry.PreviewKind == "raw" || entry.PreviewKind == "video" || entry.PreviewKind == "pdf" || entry.PreviewKind == "office" {
 		go s.generateThumbnailsAsync(user, entry)
 	}
 	s.fireEvent(user, "upload.complete", map[string]any{
@@ -297,6 +301,9 @@ func (s *Server) writeTusHeaders(w http.ResponseWriter) {
 	w.Header().Set("Tus-Version", tusVersion)
 	w.Header().Set("Tus-Extension", "creation,termination")
 	w.Header().Set("Access-Control-Expose-Headers", "Tus-Resumable,Tus-Version,Tus-Extension,Upload-Length,Upload-Offset,Upload-Final-Path,Location")
+	if s.cfg.MaxUploadBytes > 0 {
+		w.Header().Set("Tus-Max-Size", strconv.FormatInt(s.cfg.MaxUploadBytes, 10))
+	}
 }
 
 func validTusVersion(r *http.Request) bool {

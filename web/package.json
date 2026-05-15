@@ -10,7 +10,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@svar-ui/svelte-filemanager": "^2.4.0",
     "svelte": "^5.0.0",
     "three": "^0.184.0"
   },

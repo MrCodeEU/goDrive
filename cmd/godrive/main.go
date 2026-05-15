@@ -101,6 +101,7 @@ func run() error {
 	}
 	srv.StartReconciliation(ctx, cfg.ReconcileInterval)
 	srv.StartUploadCleanup(ctx, cfg.UploadDir, cfg.UploadTTL)
+	srv.StartSessionCleanup(ctx)
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -110,6 +111,11 @@ func run() error {
 
 	select {
 	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Warn("server shutdown error", "err", err)
+		}
 		return nil
 	case err := <-errCh:
 		if errors.Is(err, http.ErrServerClosed) {

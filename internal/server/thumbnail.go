@@ -92,8 +92,48 @@ func (s *Server) thumbnail(w http.ResponseWriter, r *http.Request, user store.Us
 	http.ServeFile(w, r, cachePath)
 }
 
-// generateThumbnailsAsync generates all warmup-size thumbnails for a freshly uploaded file.
-// Runs in a background goroutine; errors are logged, not fatal.
+func (s *Server) trashThumbnail(w http.ResponseWriter, r *http.Request, user store.User, session store.Session) {
+	size := parseThumbSize(r.URL.Query().Get("size"))
+	item, err := s.store.GetTrashItem(r.Context(), user.ID, r.PathValue("id"))
+	if err != nil {
+		writeError(w, statusForError(err), err.Error())
+		return
+	}
+	if item.IsDir {
+		writeError(w, http.StatusUnsupportedMediaType, "thumbnail is not supported for folders")
+		return
+	}
+	info, err := os.Stat(item.TrashPath)
+	if err != nil {
+		writeError(w, statusForError(err), err.Error())
+		return
+	}
+	kind := preview.KindForName(item.OriginalName)
+	if !supportsThumbnail(kind) {
+		writeError(w, http.StatusUnsupportedMediaType, "thumbnail is not supported for this file type")
+		return
+	}
+
+	cachePath := thumbnailCachePathInode(s.cfg.PreviewDir, user.ID, "/.trash/"+item.ID+"/"+item.OriginalName, info, size)
+	if _, err := os.Stat(cachePath); errors.Is(err, os.ErrNotExist) {
+		if err := os.MkdirAll(filepath.Dir(cachePath), 0o750); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to create thumbnail cache")
+			return
+		}
+		if err := s.generateThumbnail(r.Context(), item.TrashPath, kind, size, cachePath); err != nil {
+			writeError(w, http.StatusUnsupportedMediaType, err.Error())
+			return
+		}
+	} else if err != nil {
+		writeError(w, statusForError(err), err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+	http.ServeFile(w, r, cachePath)
+}
+
 func (s *Server) generateThumbnailsAsync(user store.User, entry files.Entry) {
 	ctx := context.Background()
 	resolved, info, err := s.files.ResolveForRead(user, entry.Path)
@@ -244,11 +284,10 @@ func generateImageThumbnail(ctx context.Context, source string, size int, target
 }
 
 func generateRAWThumbnail(ctx context.Context, source string, size int, target string) error {
-	if err := generateImageThumbnail(ctx, source, size, target); err == nil {
-		return nil
-	} else {
+	if err := generateImageThumbnail(ctx, source, size, target); err != nil {
 		return fmt.Errorf("RAW thumbnail generation requires libvips or ffmpeg RAW support: %w", err)
 	}
+	return nil
 }
 
 func generateVideoThumbnail(ctx context.Context, source string, size int, target string) error {

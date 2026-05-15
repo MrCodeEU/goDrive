@@ -16,10 +16,23 @@ ANDROID_DEVICE   ?= emulator-5554
 # Android Studio Flatpak stores AVDs here instead of ~/.android/avd
 ANDROID_AVD_HOME ?= $(HOME)/.var/app/com.google.AndroidStudio/config/.android/avd
 
+# ─── iOS sideload via GitHub Actions + xtool ───────────────────────────────
+# xtool distributes as an AppImage — works on Fedora Atomic without rpm-ostree.
+# APPIMAGE_EXTRACT_AND_RUN=1 skips FUSE, which may be unavailable on atomic distros.
+# usbmuxd must be running on the host (socket at /var/run/usbmuxd).
+#   Fedora Atomic: rpm-ostree install usbmuxd && systemctl reboot
+XTOOL_VERSION  := 1.16.1
+XTOOL_BIN      := $(HOME)/.local/bin/xtool.AppImage
+XTOOL          := APPIMAGE_EXTRACT_AND_RUN=1 $(XTOOL_BIN)
+IOS_BRANCH     := ios-dev
+IOS_ARTIFACT   := godrive-ios
+IOS_IPA        := /tmp/godrive-ios/godrive.ipa
+
 .PHONY: fmt fmt-check vet test test-cover test-race tidy golangci lint check run \
         web-install web-dev web-check web-build web-test \
         mobile-install mobile-test mobile-build-android \
-        emulator-start emulator-wait mobile-run mobile-dev
+        emulator-start emulator-wait mobile-run mobile-dev \
+        xtool-setup xtool-auth ios-push ios-deploy ios-refresh ios-devices
 
 GO_PACKAGES := ./...
 GO_FILES := $(shell find cmd internal -name '*.go' -type f)
@@ -103,3 +116,71 @@ mobile-dev: emulator-start
 		echo "Backend already running on :8121"; \
 	fi
 	cd mobile && $(FLUTTER) run -d $(ANDROID_DEVICE)
+
+# ─── iOS targets ────────────────────────────────────────────────────────────
+
+# One-time system setup for iPhone sideloading on Fedora Atomic.
+# Requires: rpm-ostree install usbmuxd (+ reboot) if not already installed.
+xtool-setup:
+	@echo "→ Downloading xtool $(XTOOL_VERSION) AppImage..."
+	@mkdir -p $(HOME)/.local/bin
+	curl -fSL "https://github.com/xtool-org/xtool/releases/download/$(XTOOL_VERSION)/xtool-x86_64.AppImage" \
+		-o $(XTOOL_BIN)
+	chmod +x $(XTOOL_BIN)
+	@echo "→ Adding Apple USB udev rule (sudo required)..."
+	@echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="05ac", MODE="0666"' | \
+		sudo tee /etc/udev/rules.d/99-apple-usb.rules > /dev/null
+	sudo udevadm control --reload-rules
+	@echo ""
+	@echo "→ Checking usbmuxd..."
+	@if ! systemctl is-active --quiet usbmuxd && ! rpm -q usbmuxd &>/dev/null; then \
+		echo "  usbmuxd not found. Install it:"; \
+		echo "    rpm-ostree install usbmuxd && systemctl reboot"; \
+		echo "  Then re-plug iPhone and run: make xtool-auth"; \
+	else \
+		echo "  usbmuxd OK"; \
+		echo ""; \
+		echo "→ Next: plug in iPhone, tap Trust, then run: make xtool-auth"; \
+	fi
+
+# Authenticate with Apple ID (once — stored in keychain).
+xtool-auth:
+	$(XTOOL) auth login
+
+# List connected iOS devices (quick connectivity check).
+ios-devices:
+	$(XTOOL) devices
+
+# Force-push current HEAD to scratch branch (no history accumulation on main).
+ios-push:
+	git push origin HEAD:refs/heads/$(IOS_BRANCH) --force
+
+# Full pipeline: push → trigger CI → wait → download → sign + install.
+# iPhone must be connected via USB and trusted before running.
+ios-deploy: ios-push
+	@set -e; \
+	echo "→ Triggering iOS build on branch $(IOS_BRANCH)..."; \
+	gh workflow run ios.yml --ref $(IOS_BRANCH); \
+	echo "→ Waiting for run to register..."; \
+	RUN_ID=""; \
+	for i in $$(seq 1 15); do \
+		RUN_ID=$$(gh run list --workflow=ios.yml --branch=$(IOS_BRANCH) \
+			--limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null); \
+		[ -n "$$RUN_ID" ] && [ "$$RUN_ID" != "null" ] && break; \
+		sleep 3; \
+	done; \
+	[ -z "$$RUN_ID" ] && echo "ERROR: could not get run ID" && exit 1; \
+	echo "→ Watching run $$RUN_ID (typically 8-12 min)..."; \
+	gh run watch $$RUN_ID --exit-status; \
+	echo "→ Downloading IPA..."; \
+	rm -rf /tmp/godrive-ios; \
+	gh run download $$RUN_ID -n $(IOS_ARTIFACT) --dir /tmp/godrive-ios; \
+	echo "→ Signing and installing on device..."; \
+	$(XTOOL) install $(IOS_IPA); \
+	echo "✓ Done. App installed on iPhone."
+
+# Re-sign and reinstall the last downloaded IPA without rebuilding.
+# Use when the 7-day free-account cert expires — skips the full CI build.
+ios-refresh:
+	@[ -f $(IOS_IPA) ] || (echo "No IPA at $(IOS_IPA) — run make ios-deploy first" && exit 1)
+	$(XTOOL) install $(IOS_IPA)

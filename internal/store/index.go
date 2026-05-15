@@ -437,7 +437,8 @@ func (s *Store) SearchFileIndex(ctx context.Context, userID int64, query string,
 		limit = 200
 	}
 
-	if isFileIndexFTSQuery(query) {
+	isFTS := isFileIndexFTSQuery(query)
+	if isFTS {
 		results, err := s.searchFileIndexFTS(ctx, userID, query, limit)
 		if err == nil {
 			return s.appendDocumentSearchResults(ctx, userID, query, limit, results)
@@ -447,7 +448,7 @@ func (s *Store) SearchFileIndex(ctx context.Context, userID int64, query string,
 	if err != nil {
 		return nil, err
 	}
-	if isFileIndexFTSQuery(query) {
+	if isFTS {
 		return s.appendDocumentSearchResults(ctx, userID, query, limit, results)
 	}
 	return results, nil

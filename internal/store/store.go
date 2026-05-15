@@ -104,7 +104,8 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(1)
+	db.SetMaxOpenConns(8)
+	db.SetMaxIdleConns(8)
 
 	store := &Store{db: db}
 	if err := store.configure(context.Background()); err != nil {
@@ -127,6 +128,7 @@ func (s *Store) configure(ctx context.Context) error {
 		"PRAGMA journal_mode = WAL",
 		"PRAGMA foreign_keys = ON",
 		"PRAGMA busy_timeout = 5000",
+		"PRAGMA synchronous = NORMAL",
 	}
 	for _, pragma := range pragmas {
 		if _, err := s.db.ExecContext(ctx, pragma); err != nil {

@@ -39,11 +39,43 @@ make mobile-run              # flutter run on emulator-5554
 make mobile-dev              # start emulator + backend (no latency) + flutter run
 ```
 
-First time on a new checkout, generate the Flutter platform scaffold:
+iOS platform scaffold already committed (`mobile/ios/`). Android scaffold is in `mobile/android/`. No `flutter create` needed on fresh checkout.
+
+### iOS on physical iPhone (from Linux / Fedora Atomic)
+
+iOS builds run on GitHub Actions (`macos-latest`). xtool (AppImage) handles signing + install on Linux without Xcode.
+
+**Repo:** `https://github.com/MrCodeEU/goDrive` (private)
+
+**One-time machine setup:**
 ```bash
-flutter create --project-name godrive --org com.example --platforms android,ios mobile
-make mobile-install
+# 1. usbmuxd — socket-activated, needed for iPhone USB
+systemctl is-active usbmuxd || rpm-ostree install usbmuxd && systemctl reboot
+
+# 2. xtool AppImage + Apple USB udev rule
+make xtool-setup
+
+# 3. Apple ID login (stored in system keychain)
+make xtool-auth
+
+# 4. Verify iPhone is seen
+make ios-devices    # plug in iPhone, tap Trust when prompted
 ```
+
+**Dev loop:**
+```bash
+make ios-deploy     # push → CI build (~8-12 min) → download IPA → sign + install
+make ios-refresh    # re-sign last IPA when 7-day free cert expires (skips rebuild)
+```
+
+`ios-deploy` force-pushes HEAD to a scratch branch `ios-dev` — main is never touched. CI trigger: `.github/workflows/ios.yml` (`workflow_dispatch` only).
+
+**Connectivity for testing:**
+```bash
+# .env
+GODRIVE_ADDR=0.0.0.0:8121   # bind to LAN, not just localhost
+```
+iPhone connects to `http://<laptop-LAN-IP>:8121` — same WiFi required.
 
 ## Environment
 
@@ -58,6 +90,7 @@ Notable dev variables:
 - `GODRIVE_ENABLE_WATCHER=true` — watches filesystem for external changes
 - `GODRIVE_RECONCILE_INTERVAL=24h` — periodic full reindex interval
 - `GODRIVE_UPLOAD_TTL=48h` — incomplete TUS upload cleanup TTL
+- `GODRIVE_MAX_UPLOAD_BYTES=0` — max declared upload size in bytes; 0 = unlimited (useful for limiting storage per deployment)
 
 Android emulator reaches host backend at `http://10.0.2.2:8121`.
 
@@ -69,7 +102,7 @@ Android emulator reaches host backend at `http://10.0.2.2:8121`.
 
 | Package | Responsibility |
 |---|---|
-| `cmd/godrive/main.go` | Config load, DB open, migrations, bootstrap admin, graceful shutdown |
+| `cmd/godrive/main.go` | Config load, DB open, migrations, bootstrap admin, graceful shutdown (15 s drain on SIGTERM), periodic session/upload cleanup |
 | `internal/server/` | HTTP mux, middleware, JSON encoding, route handlers |
 | `internal/server/webhooks.go` | Async webhook event dispatch with HMAC-SHA256, retry, per-delivery context |
 | `internal/files/service.go` | All filesystem ops — list, mkdir, move, trash, restore, upload finalization |
@@ -79,9 +112,9 @@ Android emulator reaches host backend at `http://10.0.2.2:8121`.
 | `internal/config/` | Env-based config loading |
 | `internal/watch/` | fsnotify watcher that invalidates file index on external changes |
 
-**Auth flow:** `POST /api/auth/login` returns a session cookie plus bearer token. Cookie auth requires `X-CSRF-Token` on all mutating requests. Bearer token auth skips CSRF. Both go through `withUser()` middleware. Login rate limited: 10 failures/IP/5min → 15min block.
+**Auth flow:** `POST /api/auth/login` returns a session cookie plus bearer token. Cookie auth requires `X-CSRF-Token` on all mutating requests. Bearer token auth skips CSRF. Both go through `withUser()` middleware. Login rate limited: 10 failures/IP/5min → 15min block. Sessions expire per `GODRIVE_SESSION_TTL`; expired+revoked sessions pruned hourly by `StartSessionCleanup`.
 
-**TUS upload flow:** `POST /api/tus` creates upload record + temp file. `PATCH /api/tus/{id}` streams chunks. On final chunk, `files.Service.FinalizeUpload()` moves temp to target (conflict suffix), then `generateThumbnailsAsync()` generates all warmup sizes in the background, then `fireEvent("upload.complete", ...)` notifies webhook subscribers.
+**TUS upload flow:** `POST /api/tus` creates upload record + temp file, rejects declared `Upload-Length` > `GODRIVE_MAX_UPLOAD_BYTES` (default 0 = unlimited). `PATCH /api/tus/{id}` streams chunks. On final chunk, `files.Service.FinalizeUpload()` moves temp to target (conflict suffix), then `generateThumbnailsAsync()` generates all warmup sizes in the background for image/raw/video/pdf/office, then `fireEvent("upload.complete", ...)` notifies webhook subscribers.
 
 **Thumbnail cache key:** `hash(version, userID, inode, device, size, mtime, thumbSize)` — inode-based, stable across renames/moves on same filesystem. Falls back to path-based key when inode unavailable.
 
@@ -89,11 +122,13 @@ Android emulator reaches host backend at `http://10.0.2.2:8121`.
 
 **Webhooks:** `server.fireEvent(user, event, data)` dispatches asynchronously. Each hook gets its own `context.WithTimeout(context.Background(), 2min)` — independent of the query context that found the hooks (bug-prone otherwise: shared cancel = premature abort). HTTP POST with `X-GoDrive-Signature: sha256=<hmac>`, 3 attempts, backoff 0s/5s/30s.
 
-**SQLite pragmas:** WAL journal mode, foreign keys on, 5s busy timeout.
+**SQLite pragmas:** WAL journal mode, `synchronous = NORMAL`, foreign keys on, 5s busy timeout. `MaxOpenConns(8)` — WAL allows concurrent reads; writes still serialize at the SQLite layer.
+
+**Auth per-request cost:** `UserByValidSession` is a single JOIN (sessions + users) — one DB round-trip per authenticated request.
 
 ### Frontend (`web/src/`)
 
-Single Svelte 5 component (`App.svelte`) — no router. UI states: loading → login form → file manager.
+Single Svelte 5 component (`App.svelte`) — no router. UI states: loading → login form → file manager. SPA routing: server serves `index.html` for `/`, `/files`, and `/files/*`; direct navigation and browser refresh work. Static assets served with `Cache-Control: public, max-age=31536000, immutable` (Vite uses content-hash filenames).
 
 | File | Role |
 |---|---|
@@ -113,6 +148,25 @@ Single Svelte 5 component (`App.svelte`) — no router. UI states: loading → l
 **Upload queue:** Persisted to localStorage (metadata only — File handles are ephemeral). Active uploads set wakelock. TUS resume: `onUploadCreated` callback stores the TUS URL; retry does HEAD → PATCH from stored offset; falls back to fresh upload on 404.
 
 **Folder pagination:** Default 500 entries/page. `has_more=true` shows a "Load more" banner that fetches the next page and appends to SVAR's `provide-data`.
+
+### iOS sideload from Linux (Fedora Atomic)
+
+xtool is an AppImage — no rpm-ostree needed. Runs with `APPIMAGE_EXTRACT_AND_RUN=1` to avoid FUSE dependency.
+
+**One-time setup:**
+```sh
+rpm-ostree install usbmuxd && systemctl reboot   # if not already installed
+make xtool-setup                                  # downloads AppImage, adds udev rule
+make xtool-auth                                   # Apple ID login (stored in keychain)
+```
+
+**Dev iteration loop:**
+```sh
+make ios-deploy   # force-pushes to ios-dev → triggers GH Actions → downloads IPA → xtool signs + installs
+make ios-refresh  # re-signs last IPA without rebuilding (7-day cert refresh)
+```
+
+`ios-dev` branch is force-pushed every run — no history junk, main stays clean. Build: ~8 min warm, ~12 min cold.
 
 ### Mobile (`mobile/`)
 

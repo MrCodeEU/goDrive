@@ -271,6 +271,10 @@ export function thumbnailURL(path: string, size: number) {
   return `/api/files/thumbnail?path=${encodeURIComponent(path)}&size=${size}`;
 }
 
+export function trashThumbnailURL(id: string, size: number) {
+  return `/api/trash/${encodeURIComponent(id)}/thumbnail?size=${size}`;
+}
+
 export function rawFileURL(path: string) {
   return `/api/files/raw?path=${encodeURIComponent(path)}`;
 }

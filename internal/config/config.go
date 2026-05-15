@@ -30,6 +30,7 @@ type Config struct {
 	UploadTTL              time.Duration
 	PreviewWorkers         int
 	PreviewTimeout         time.Duration
+	MaxUploadBytes         int64
 	DevLatencyMin          time.Duration
 	DevLatencyMax          time.Duration
 }
@@ -59,6 +60,14 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	maxUploadBytes := int64(0)
+	if raw := os.Getenv("GODRIVE_MAX_UPLOAD_BYTES"); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed < 0 {
+			return Config{}, fmt.Errorf("GODRIVE_MAX_UPLOAD_BYTES must be a non-negative integer")
+		}
+		maxUploadBytes = parsed
+	}
 	devLatencyMin, devLatencyMax, err := parseLatencyRange(os.Getenv("GODRIVE_DEV_LATENCY"))
 	if err != nil {
 		return Config{}, err
@@ -84,6 +93,7 @@ func Load() (Config, error) {
 		UploadTTL:              uploadTTL,
 		PreviewWorkers:         envInt("GODRIVE_PREVIEW_WORKERS", 0),
 		PreviewTimeout:         previewTimeout,
+		MaxUploadBytes:         maxUploadBytes,
 		DevLatencyMin:          devLatencyMin,
 		DevLatencyMax:          devLatencyMax,
 	}

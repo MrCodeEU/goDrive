@@ -1,12 +1,14 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"sync"
+	"time"
 
 	"godrive/internal/config"
 	"godrive/internal/files"
@@ -46,6 +48,27 @@ func New(cfg config.Config, st *store.Store, fileService *files.Service, log *sl
 
 func (s *Server) ListenAndServe() error {
 	return s.httpServer.ListenAndServe()
+}
+
+func (s *Server) Shutdown(ctx context.Context) error {
+	return s.httpServer.Shutdown(ctx)
+}
+
+func (s *Server) StartSessionCleanup(ctx context.Context) {
+	ticker := time.NewTicker(time.Hour)
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := s.store.DeleteExpiredSessions(ctx, time.Now().UTC()); err != nil {
+					s.log.Warn("session cleanup failed", "err", err)
+				}
+			}
+		}
+	}()
 }
 
 func (s *Server) SetWatcher(watcher *watch.Watcher) {
@@ -101,6 +124,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/files/bulk/download", s.withUser(s.bulkDownload))
 
 	mux.HandleFunc("GET /api/trash", s.withUser(s.listTrash))
+	mux.HandleFunc("GET /api/trash/{id}/thumbnail", s.withUser(s.trashThumbnail))
 	mux.HandleFunc("POST /api/trash/{id}/restore", s.withUser(s.restoreTrash))
 	mux.HandleFunc("DELETE /api/trash/{id}", s.withUser(s.permanentlyDeleteTrash))
 

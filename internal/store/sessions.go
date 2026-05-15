@@ -41,20 +41,64 @@ func (s *Store) GetSessionByTokenHash(ctx context.Context, tokenHash string) (Se
 }
 
 func (s *Store) UserByValidSession(ctx context.Context, tokenHash string, now time.Time) (User, Session, error) {
-	session, err := s.GetSessionByTokenHash(ctx, tokenHash)
+	row := s.db.QueryRowContext(ctx, `
+		SELECT
+			s.id, s.user_id, s.token_hash, s.csrf_token_hash, s.created_at, s.expires_at, s.revoked_at,
+			u.id, u.username, u.password_hash, u.is_admin, u.disabled, u.home_root, u.created_at, u.updated_at
+		FROM sessions s
+		JOIN users u ON u.id = s.user_id
+		WHERE s.token_hash = ?
+			AND s.revoked_at IS NULL
+			AND s.expires_at > ?
+			AND u.disabled = 0
+	`, tokenHash, timeString(now))
+
+	var session Session
+	var user User
+	var sCreatedAt, sExpiresAt string
+	var sRevokedAt sql.NullString
+	var uCreatedAt, uUpdatedAt string
+	var isAdmin, disabled int
+
+	err := row.Scan(
+		&session.ID, &session.UserID, &session.TokenHash, &session.CSRFTokenHash,
+		&sCreatedAt, &sExpiresAt, &sRevokedAt,
+		&user.ID, &user.Username, &user.PasswordHash, &isAdmin, &disabled,
+		&user.HomeRoot, &uCreatedAt, &uUpdatedAt,
+	)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return User{}, Session{}, ErrNotFound
+		}
 		return User{}, Session{}, err
-	}
-	if session.RevokedAt.Valid || !session.ExpiresAt.After(now) {
-		return User{}, Session{}, ErrNotFound
 	}
 
-	user, err := s.GetUserByID(ctx, session.UserID)
-	if err != nil {
-		return User{}, Session{}, err
+	var err1, err2 error
+	session.CreatedAt, err1 = scanTime(sCreatedAt)
+	session.ExpiresAt, err2 = scanTime(sExpiresAt)
+	if err1 != nil {
+		return User{}, Session{}, err1
 	}
-	if user.Disabled {
-		return User{}, Session{}, ErrNotFound
+	if err2 != nil {
+		return User{}, Session{}, err2
+	}
+	if sRevokedAt.Valid {
+		parsed, err := scanTime(sRevokedAt.String)
+		if err != nil {
+			return User{}, Session{}, err
+		}
+		session.RevokedAt = sql.NullTime{Time: parsed, Valid: true}
+	}
+
+	user.IsAdmin = isAdmin == 1
+	user.Disabled = disabled == 1
+	user.CreatedAt, err1 = scanTime(uCreatedAt)
+	user.UpdatedAt, err2 = scanTime(uUpdatedAt)
+	if err1 != nil {
+		return User{}, Session{}, err1
+	}
+	if err2 != nil {
+		return User{}, Session{}, err2
 	}
 
 	return user, session, nil

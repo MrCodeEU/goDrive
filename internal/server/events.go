@@ -53,6 +53,7 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, user store.User,
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
 
 	events := s.subscribeEvents(user.ID)
 	defer s.unsubscribeEvents(user.ID, events)

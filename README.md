@@ -20,6 +20,9 @@ Self-hosted file manager for families. Filesystem is the source of truth. SQLite
 - Webhook/event API: subscribers receive `upload.complete`, `file.moved`, `file.deleted`, `file.restored` events with HMAC-SHA256 signature
 - Periodic reconciliation scanner + fsnotify watcher for external changes (SMB, rsync, shell)
 - Folder listing pagination (offset/limit) with load-more
+- Graceful shutdown: in-flight requests drain for up to 15 s on SIGTERM
+- Hourly expired-session cleanup; upload cleanup every 6 h
+- SQLite WAL mode with 8 concurrent connections for read parallelism
 
 **Mobile (Flutter)**
 - Android/iOS app: file browser (list + grid), image viewer, in-app video player
@@ -65,22 +68,46 @@ Release images are published to `ghcr.io/<owner>/godrive` on `v*` tags.
 ## Mobile (Android)
 
 ```sh
-# First time — generate platform scaffold
-flutter create --project-name godrive --org com.example --platforms android,ios mobile
-
-make mobile-install
-
-# Run on emulator (starts emulator + backend if needed)
-make mobile-dev
-
-# Or just run (emulator + backend already running)
-make mobile-run
-
-# Debug APK
-make mobile-build-android
+make mobile-install   # flutter pub get
+make mobile-dev       # start emulator + backend + flutter run
+make mobile-run       # flutter run (emulator + backend already running)
+make mobile-build-android  # debug APK
 ```
 
 The emulator reaches the backend at `http://10.0.2.2:8121` (Android emulator maps `10.0.2.2` → host `127.0.0.1`).
+
+## Mobile (iOS — physical device, from Linux)
+
+iOS builds run on GitHub Actions (`macos-latest`). [xtool](https://xtool.sh) (AppImage) signs and installs on Linux without Xcode.
+
+**One-time setup (Fedora Atomic):**
+
+```sh
+# usbmuxd — required for iPhone USB communication
+rpm-ostree install usbmuxd && systemctl reboot   # skip if already installed
+
+make xtool-setup    # downloads xtool AppImage, adds Apple USB udev rule
+make xtool-auth     # Apple ID login (stored in keychain)
+make ios-devices    # plug in iPhone → tap Trust → verify it appears
+```
+
+**Dev loop:**
+
+```sh
+make ios-deploy     # edit code → push to ios-dev branch → CI builds (~8-12 min) → xtool signs + installs
+make ios-refresh    # re-sign last IPA when 7-day free cert expires (no rebuild)
+```
+
+`ios-deploy` force-pushes HEAD to a scratch branch `ios-dev` — `main` is never touched during iteration.
+
+**Backend for iPhone testing** — iPhone must be on same WiFi as the laptop:
+
+```sh
+# .env
+GODRIVE_ADDR=0.0.0.0:8121
+```
+
+Connect from iPhone to `http://<laptop-LAN-IP>:8121`.
 
 ## Webhooks
 
@@ -143,6 +170,7 @@ godrive admin reset-password --username admin --password 'new-password'
 | `GODRIVE_PREVIEW_DIR` | `{appdata}/previews` | Rebuildable thumbnail cache |
 | `GODRIVE_UPLOAD_DIR` | `{appdata}/uploads` | TUS staging area |
 | `GODRIVE_TRASH_DIR` | `{appdata}/trash` | Trash storage (durable — back up) |
+| `GODRIVE_MAX_UPLOAD_BYTES` | `0` | Max declared TUS upload size in bytes (`0` = unlimited) |
 | `GODRIVE_DEV_LATENCY` | _(none)_ | Inject fake API latency, e.g. `10ms-25ms` |
 
 ## Volume Categories (Backup Guide)

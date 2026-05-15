@@ -36,19 +36,13 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request, admin store.
 		return
 	}
 	if err := os.MkdirAll(req.HomeRoot, 0o750); err != nil {
-		writeError(w, http.StatusBadRequest, "failed to create home root")
+		writeError(w, http.StatusBadRequest, "failed to create home root: "+err.Error())
 		return
 	}
 	passwordHash, err := auth.HashPassword(req.Password)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to hash password")
 		return
-	}
-	if req.HomeRoot != "" {
-		if err := os.MkdirAll(req.HomeRoot, 0o750); err != nil {
-			writeError(w, http.StatusBadRequest, "failed to create home root: "+err.Error())
-			return
-		}
 	}
 	user, err := s.store.CreateUser(r.Context(), store.User{
 		Username:     req.Username,
@@ -58,7 +52,7 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request, admin store.
 		HomeRoot:     req.HomeRoot,
 	})
 	if err != nil {
-		writeError(w, http.StatusConflict, "failed to create user")
+		writeError(w, statusForError(err), "failed to create user")
 		return
 	}
 	if err := s.reloadWatcherRoots(r.Context()); err != nil {
@@ -90,6 +84,10 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, admin store.
 		return
 	}
 	if req.Username != nil {
+		if *req.Username == "" {
+			writeError(w, http.StatusBadRequest, "username cannot be empty")
+			return
+		}
 		existing.Username = *req.Username
 	}
 	if req.HomeRoot != nil {
