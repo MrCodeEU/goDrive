@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"strconv"
@@ -43,6 +44,12 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request, admin store.
 		writeError(w, http.StatusInternalServerError, "failed to hash password")
 		return
 	}
+	if req.HomeRoot != "" {
+		if err := os.MkdirAll(req.HomeRoot, 0o750); err != nil {
+			writeError(w, http.StatusBadRequest, "failed to create home root: "+err.Error())
+			return
+		}
+	}
 	user, err := s.store.CreateUser(r.Context(), store.User{
 		Username:     req.Username,
 		PasswordHash: passwordHash,
@@ -53,6 +60,9 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request, admin store.
 	if err != nil {
 		writeError(w, http.StatusConflict, "failed to create user")
 		return
+	}
+	if err := s.reloadWatcherRoots(r.Context()); err != nil {
+		s.log.Warn("failed to reload watcher roots after user create", "err", err)
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"user": user})
 }
@@ -104,6 +114,9 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, admin store.
 	if updated.Disabled {
 		_ = s.store.RevokeUserSessions(r.Context(), updated.ID)
 	}
+	if err := s.reloadWatcherRoots(r.Context()); err != nil {
+		s.log.Warn("failed to reload watcher roots after user update", "err", err)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"user": updated})
 }
 
@@ -143,4 +156,15 @@ func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 		return 0, false
 	}
 	return id, true
+}
+
+func (s *Server) reloadWatcherRoots(ctx context.Context) error {
+	if s.watcher == nil {
+		return nil
+	}
+	users, err := s.store.ListUsers(ctx)
+	if err != nil {
+		return err
+	}
+	return s.watcher.SetUserRoots(users)
 }

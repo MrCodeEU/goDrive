@@ -86,6 +86,12 @@ func isStateChanging(method string) bool {
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
+	if !s.loginLimit.allow(ip) {
+		writeError(w, http.StatusTooManyRequests, "too many failed login attempts, try again later")
+		return
+	}
+
 	var req struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -97,17 +103,20 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 
 	user, err := s.store.GetUserByUsername(r.Context(), req.Username)
 	if err != nil || user.Disabled {
+		s.loginLimit.record(ip)
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 	if err := auth.VerifyPassword(req.Password, user.PasswordHash); err != nil {
 		if errors.Is(err, auth.ErrPasswordMismatch) || errors.Is(err, auth.ErrInvalidHash) {
+			s.loginLimit.record(ip)
 			writeError(w, http.StatusUnauthorized, "invalid credentials")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to verify password")
 		return
 	}
+	s.loginLimit.reset(ip)
 
 	sessionToken, err := auth.RandomToken()
 	if err != nil {

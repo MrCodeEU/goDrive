@@ -10,6 +10,8 @@ func KindForName(name string) string {
 	switch ext {
 	case ".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".avif", ".gif", ".tif", ".tiff", ".bmp":
 		return "image"
+	case ".raw", ".dng", ".cr2", ".cr3", ".nef", ".arw", ".raf", ".rw2", ".orf", ".pef", ".srw":
+		return "raw"
 	case ".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi":
 		return "video"
 	case ".txt", ".log", ".csv", ".json", ".xml", ".yaml", ".yml", ".toml", ".ini":
@@ -18,6 +20,8 @@ func KindForName(name string) string {
 		return "markdown"
 	case ".pdf":
 		return "pdf"
+	case ".doc", ".docx", ".odt", ".rtf", ".xls", ".xlsx", ".ods", ".ppt", ".pptx", ".odp":
+		return "office"
 	case ".glb", ".gltf", ".stl", ".obj", ".ply":
 		return "3d"
 	default:

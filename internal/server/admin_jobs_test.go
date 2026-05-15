@@ -25,3 +25,35 @@ func TestPreviewWarmupWorkerCount(t *testing.T) {
 		t.Fatalf("auto workers = %d, want %d", got, runtime.NumCPU()/2)
 	}
 }
+
+func TestAdminJobsPreventsOverlappingJobs(t *testing.T) {
+	t.Parallel()
+
+	jobs := NewAdminJobs()
+	if _, err := jobs.start("reindex"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := jobs.start("reconciliation"); err != errJobRunning {
+		t.Fatalf("second start err = %v, want errJobRunning", err)
+	}
+}
+
+func TestAdminJobsCancelCurrent(t *testing.T) {
+	t.Parallel()
+
+	jobs := NewAdminJobs()
+	job, err := jobs.start("preview_warmup")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !job.Cancelable {
+		t.Fatal("new job should be cancelable")
+	}
+	canceled := jobs.CancelCurrent()
+	if canceled == nil || canceled.Message != "cancel requested" {
+		t.Fatalf("cancel result = %+v", canceled)
+	}
+	if err := job.context.Err(); err == nil {
+		t.Fatal("job context was not canceled")
+	}
+}

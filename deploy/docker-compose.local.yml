@@ -1,0 +1,19 @@
+services:
+  godrive:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./data:/data
+      - ./appdata:/appdata
+    environment:
+      GODRIVE_BOOTSTRAP_ADMIN_USER: admin
+      GODRIVE_BOOTSTRAP_ADMIN_PASSWORD: change-me
+      GODRIVE_BOOTSTRAP_ADMIN_ROOT: /data/admin
+      GODRIVE_COOKIE_SECURE: "false"
+      GODRIVE_SESSION_TTL: 720h
+      GODRIVE_RECONCILE_INTERVAL: 24h
+      GODRIVE_PREVIEW_WORKERS: "2"

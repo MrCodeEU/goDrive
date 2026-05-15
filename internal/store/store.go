@@ -63,6 +63,7 @@ type Upload struct {
 type FileIndexEntry struct {
 	UserID       int64     `json:"user_id"`
 	Path         string    `json:"path"`
+	ParentPath   string    `json:"parent_path,omitempty"`
 	Name         string    `json:"name"`
 	Type         string    `json:"type"`
 	Size         int64     `json:"size"`
@@ -71,6 +72,12 @@ type FileIndexEntry struct {
 	PreviewKind  string    `json:"preview_kind,omitempty"`
 	LastSeenScan string    `json:"last_seen_scan"`
 	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+type DocumentTextEntry struct {
+	UserID  int64
+	Path    string
+	Content string
 }
 
 type PreviewCandidate struct {
@@ -101,7 +108,7 @@ func Open(path string) (*Store, error) {
 
 	store := &Store{db: db}
 	if err := store.configure(context.Background()); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	return store, nil
@@ -109,6 +116,10 @@ func Open(path string) (*Store, error) {
 
 func (s *Store) Close() error {
 	return s.db.Close()
+}
+
+func (s *Store) DB() *sql.DB {
+	return s.db
 }
 
 func (s *Store) configure(ctx context.Context) error {

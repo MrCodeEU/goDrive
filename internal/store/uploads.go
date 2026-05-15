@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 func (s *Store) CreateUpload(ctx context.Context, upload Upload) error {
@@ -63,6 +64,30 @@ func (s *Store) CompleteUpload(ctx context.Context, id string, finalPath string)
 		return ErrNotFound
 	}
 	return nil
+}
+
+func (s *Store) ListExpiredUploads(ctx context.Context, olderThan time.Time) ([]Upload, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, user_id, upload_length, offset, metadata_json, target_dir, filename,
+			temp_path, final_path, created_at, updated_at, completed_at
+		FROM uploads
+		WHERE completed_at IS NULL AND updated_at < ?
+	`, timeString(olderThan))
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+	var uploads []Upload
+	for rows.Next() {
+		upload, err := scanUpload(rows)
+		if err != nil {
+			return nil, err
+		}
+		uploads = append(uploads, upload)
+	}
+	return uploads, rows.Err()
 }
 
 func (s *Store) DeleteUpload(ctx context.Context, id string) error {

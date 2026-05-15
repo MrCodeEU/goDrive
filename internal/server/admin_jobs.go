@@ -34,16 +34,23 @@ type AdminJob struct {
 	TotalKnown bool       `json:"total_known"`
 	Done       int64      `json:"done"`
 	Failed     int64      `json:"failed"`
+	Deleted    int64      `json:"deleted"`
+	User       string     `json:"user,omitempty"`
+	Scope      string     `json:"scope,omitempty"`
+	Cancelable bool       `json:"cancelable"`
 	Message    string     `json:"message"`
+	context    context.Context
+	cancel     context.CancelFunc
 }
 
 var errJobRunning = errors.New("admin job already running")
 
 const (
-	reindexBatchSize       = 500
-	previewWarmupMaxJobs   = 64
-	previewWarmupMinJobs   = 2
-	adminProgressBatchSize = 25
+	reindexBatchSize                 = 500
+	previewWarmupMaxJobs             = 64
+	previewWarmupMinJobs             = 2
+	adminProgressBatchSize           = 25
+	watcherReconciliationCheckPeriod = time.Minute
 )
 
 func NewAdminJobs() *AdminJobs {
@@ -61,6 +68,10 @@ func (jobs *AdminJobs) Snapshot() *AdminJob {
 }
 
 func (jobs *AdminJobs) start(kind string) (*AdminJob, error) {
+	return jobs.startFrom(context.Background(), kind)
+}
+
+func (jobs *AdminJobs) startFrom(parent context.Context, kind string) (*AdminJob, error) {
 	jobs.mu.Lock()
 	defer jobs.mu.Unlock()
 	if jobs.current != nil && jobs.current.Status == "running" {
@@ -70,16 +81,32 @@ func (jobs *AdminJobs) start(kind string) (*AdminJob, error) {
 	if err != nil {
 		return nil, err
 	}
+	ctx, cancel := context.WithCancel(parent)
 	job := &AdminJob{
-		ID:        id,
-		Type:      kind,
-		Status:    "running",
-		StartedAt: time.Now().UTC(),
-		Message:   "starting",
+		ID:         id,
+		Type:       kind,
+		Status:     "running",
+		StartedAt:  time.Now().UTC(),
+		Cancelable: true,
+		Message:    "starting",
+		context:    ctx,
+		cancel:     cancel,
 	}
 	jobs.current = job
 	copy := *job
 	return &copy, nil
+}
+
+func (jobs *AdminJobs) CancelCurrent() *AdminJob {
+	jobs.mu.Lock()
+	defer jobs.mu.Unlock()
+	if jobs.current == nil || jobs.current.Status != "running" {
+		return nil
+	}
+	jobs.current.Message = "cancel requested"
+	jobs.current.cancel()
+	copy := *jobs.current
+	return &copy
 }
 
 func (jobs *AdminJobs) update(id string, fn func(*AdminJob)) {
@@ -97,8 +124,139 @@ func (s *Server) startReindexJob() (*AdminJob, error) {
 		return nil, err
 	}
 	s.log.Info("admin job started", "job_id", job.ID, "type", job.Type)
-	go s.runReindexJob(context.Background(), job.ID)
+	go s.runReindexJob(job.context, job.ID)
 	return job, nil
+}
+
+func (s *Server) startReindexPathJob(username string, logical string) (*AdminJob, error) {
+	user, err := s.store.GetUserByUsername(context.Background(), username)
+	if err != nil {
+		return nil, err
+	}
+	job, err := s.jobs.start("reindex")
+	if err != nil {
+		return nil, err
+	}
+	job.User = user.Username
+	job.Scope = logical
+	s.jobs.update(job.ID, func(current *AdminJob) {
+		current.User = user.Username
+		current.Scope = logical
+	})
+	s.log.Info("admin job started", "job_id", job.ID, "type", job.Type, "username", username, "scope", logical)
+	go s.runReindexPath(job.context, job.ID, user, logical)
+	return job, nil
+}
+
+func (s *Server) RunReindex(ctx context.Context) (*AdminJob, error) {
+	job, err := s.jobs.startFrom(ctx, "reindex")
+	if err != nil {
+		return nil, err
+	}
+	s.log.Info("maintenance job started", "job_id", job.ID, "type", job.Type)
+	s.runReindexJob(ctx, job.ID)
+	return s.jobs.Snapshot(), nil
+}
+
+func (s *Server) RunReindexUser(ctx context.Context, username string) (*AdminJob, error) {
+	user, err := s.store.GetUserByUsername(ctx, username)
+	if err != nil {
+		return nil, err
+	}
+	job, err := s.jobs.startFrom(ctx, "reindex")
+	if err != nil {
+		return nil, err
+	}
+	s.log.Info("maintenance job started", "job_id", job.ID, "type", job.Type, "username", username)
+	s.runReindexUsers(ctx, job.ID, []store.User{user})
+	return s.jobs.Snapshot(), nil
+}
+
+func (s *Server) RunReindexPath(ctx context.Context, username string, logical string) (*AdminJob, error) {
+	user, err := s.store.GetUserByUsername(ctx, username)
+	if err != nil {
+		return nil, err
+	}
+	job, err := s.jobs.startFrom(ctx, "reindex")
+	if err != nil {
+		return nil, err
+	}
+	s.jobs.update(job.ID, func(current *AdminJob) {
+		current.User = user.Username
+		current.Scope = logical
+	})
+	s.log.Info("maintenance job started", "job_id", job.ID, "type", job.Type, "username", username, "scope", logical)
+	s.runReindexPath(ctx, job.ID, user, logical)
+	return s.jobs.Snapshot(), nil
+}
+
+func (s *Server) StartReconciliation(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		return
+	}
+	s.log.Info("reconciliation scanner enabled", "interval", interval.String())
+	ticker := time.NewTicker(interval)
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.startReconciliationJob(ctx, "scheduled", nil)
+			}
+		}
+	}()
+}
+
+func (s *Server) StartWatcherReconciliation(ctx context.Context) {
+	s.StartWatcherReconciliationCheck(ctx, watcherReconciliationCheckPeriod)
+}
+
+func (s *Server) StartWatcherReconciliationCheck(ctx context.Context, interval time.Duration) {
+	if interval <= 0 || s.watcher == nil {
+		return
+	}
+	s.log.Info("watcher reconciliation monitor enabled", "interval", interval.String())
+	ticker := time.NewTicker(interval)
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				stats := s.watcher.Stats()
+				if !stats.NeedsRescan {
+					continue
+				}
+				s.startReconciliationJob(ctx, "watcher_rescan", func(job *AdminJob) {
+					if job != nil && job.Status == "completed" {
+						s.watcher.ClearNeedsRescan()
+					}
+				})
+			}
+		}
+	}()
+}
+
+func (s *Server) startReconciliationJob(ctx context.Context, reason string, after func(*AdminJob)) {
+	job, err := s.jobs.startFrom(ctx, "reconciliation")
+	if err != nil {
+		if errors.Is(err, errJobRunning) {
+			s.log.Info("reconciliation skipped because another admin job is running")
+			return
+		}
+		s.log.Warn("failed to start reconciliation", "err", err)
+		return
+	}
+	s.log.Info("admin job started", "job_id", job.ID, "type", job.Type, "reason", reason)
+	go func() {
+		s.runReindexJob(ctx, job.ID)
+		if after != nil {
+			after(s.jobs.Snapshot())
+		}
+	}()
 }
 
 func (s *Server) startPreviewWarmupJob() (*AdminJob, error) {
@@ -107,35 +265,57 @@ func (s *Server) startPreviewWarmupJob() (*AdminJob, error) {
 		return nil, err
 	}
 	s.log.Info("admin job started", "job_id", job.ID, "type", job.Type)
-	go s.runPreviewWarmupJob(context.Background(), job.ID)
+	go s.runPreviewWarmupJob(job.context, job.ID)
 	return job, nil
 }
 
+func (s *Server) RunPreviewWarmup(ctx context.Context) (*AdminJob, error) {
+	job, err := s.jobs.startFrom(ctx, "preview_warmup")
+	if err != nil {
+		return nil, err
+	}
+	s.log.Info("maintenance job started", "job_id", job.ID, "type", job.Type)
+	s.runPreviewWarmupJob(ctx, job.ID)
+	return s.jobs.Snapshot(), nil
+}
+
 func (s *Server) runReindexJob(ctx context.Context, jobID string) {
-	scanID := jobID + "-" + time.Now().UTC().Format("20060102T150405Z")
 	users, err := s.store.ListUsers(ctx)
 	if err != nil {
 		s.finishJob(jobID, "failed", err.Error())
 		return
 	}
+	s.runReindexUsers(ctx, jobID, users)
+}
 
+func (s *Server) runReindexUsers(ctx context.Context, jobID string, users []store.User) {
+	scanID := jobID + "-" + time.Now().UTC().Format("20060102T150405Z")
 	s.jobs.update(jobID, func(job *AdminJob) {
 		job.TotalKnown = false
 		job.Message = "scanning user roots"
 	})
 
 	for _, user := range users {
+		if err := ctx.Err(); err != nil {
+			s.finishJob(jobID, "canceled", "reindex canceled")
+			return
+		}
 		if user.Disabled {
 			continue
 		}
 		if err := s.scanUserRoot(ctx, user, scanID, jobID); err != nil {
+			if errors.Is(err, context.Canceled) {
+				s.finishJob(jobID, "canceled", "reindex canceled")
+				return
+			}
 			s.jobs.update(jobID, func(job *AdminJob) {
 				job.Failed++
 				job.Message = err.Error()
 			})
 			continue
 		}
-		if _, err := s.store.DeleteFileIndexEntriesNotSeen(ctx, user.ID, scanID); err != nil {
+		deleted, err := s.store.DeleteFileIndexEntriesNotSeen(ctx, user.ID, scanID)
+		if err != nil {
 			s.jobs.update(jobID, func(job *AdminJob) {
 				job.Failed++
 				job.Message = err.Error()
@@ -143,6 +323,7 @@ func (s *Server) runReindexJob(ctx context.Context, jobID string) {
 			continue
 		}
 		s.jobs.update(jobID, func(job *AdminJob) {
+			job.Deleted += deleted
 			job.Message = "scanning user roots"
 		})
 	}
@@ -151,7 +332,79 @@ func (s *Server) runReindexJob(ctx context.Context, jobID string) {
 		s.finishJob(jobID, "failed", "reindex completed with errors")
 		return
 	}
+	if err := ctx.Err(); err != nil {
+		s.finishJob(jobID, "canceled", "reindex canceled")
+		return
+	}
 	s.finishJob(jobID, "completed", "reindex completed")
+}
+
+func (s *Server) runReindexPath(ctx context.Context, jobID string, user store.User, logical string) {
+	if err := ctx.Err(); err != nil {
+		s.finishJob(jobID, "canceled", "subpath reindex canceled")
+		return
+	}
+	scanID := jobID + "-" + time.Now().UTC().Format("20060102T150405Z")
+	cleanLogical, err := files.CleanLogical(logical)
+	if err != nil {
+		s.finishJob(jobID, "failed", err.Error())
+		return
+	}
+	s.jobs.update(jobID, func(job *AdminJob) {
+		job.TotalKnown = false
+		job.User = user.Username
+		job.Scope = cleanLogical
+		job.Message = "scanning " + user.Username + ":" + cleanLogical
+	})
+	if user.Disabled {
+		s.finishJob(jobID, "failed", "user is disabled")
+		return
+	}
+	if err := s.scanUserPath(ctx, user, cleanLogical, scanID, jobID); err != nil {
+		if errors.Is(err, context.Canceled) {
+			s.finishJob(jobID, "canceled", "subpath reindex canceled")
+			return
+		}
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, os.ErrNotExist) {
+			deleted, deleteErr := s.store.DeleteFileIndexPath(ctx, user.ID, cleanLogical)
+			if deleteErr != nil {
+				s.jobs.update(jobID, func(job *AdminJob) {
+					job.Failed++
+					job.Message = deleteErr.Error()
+				})
+				s.finishJob(jobID, "failed", "subpath repair completed with errors")
+				return
+			}
+			s.jobs.update(jobID, func(job *AdminJob) {
+				job.Deleted += deleted
+			})
+			s.finishJob(jobID, "completed", "subpath missing; stale index entries removed")
+			return
+		}
+		s.jobs.update(jobID, func(job *AdminJob) {
+			job.Failed++
+			job.Message = err.Error()
+		})
+		s.finishJob(jobID, "failed", "subpath reindex completed with errors")
+		return
+	}
+	deleted, err := s.store.DeleteFileIndexEntriesNotSeenUnder(ctx, user.ID, scanID, cleanLogical)
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			s.finishJob(jobID, "canceled", "subpath reindex canceled")
+			return
+		}
+		s.jobs.update(jobID, func(job *AdminJob) {
+			job.Failed++
+			job.Message = err.Error()
+		})
+		s.finishJob(jobID, "failed", "subpath reindex completed with errors")
+		return
+	}
+	s.jobs.update(jobID, func(job *AdminJob) {
+		job.Deleted += deleted
+	})
+	s.finishJob(jobID, "completed", "subpath reindex completed")
 }
 
 func (s *Server) scanUserRoot(ctx context.Context, user store.User, scanID string, jobID string) error {
@@ -159,7 +412,35 @@ func (s *Server) scanUserRoot(ctx context.Context, user store.User, scanID strin
 	if err != nil {
 		return err
 	}
+	return s.scanUserTree(ctx, user, root, root, "", scanID, jobID)
+}
+
+func (s *Server) scanUserPath(ctx context.Context, user store.User, logical string, scanID string, jobID string) error {
+	resolved, err := files.ResolveExisting(user.HomeRoot, logical)
+	if err != nil {
+		return err
+	}
+	root, err := filepath.Abs(user.HomeRoot)
+	if err != nil {
+		return err
+	}
+	info, err := os.Lstat(resolved.Physical)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		_, err := s.store.DeleteFileIndexPath(ctx, user.ID, logical)
+		return err
+	}
+	if !info.IsDir() {
+		return s.scanSinglePath(ctx, user, resolved.Physical, logical, info, scanID, jobID)
+	}
+	return s.scanUserTree(ctx, user, root, resolved.Physical, logical, scanID, jobID)
+}
+
+func (s *Server) scanUserTree(ctx context.Context, user store.User, root string, start string, startLogical string, scanID string, jobID string) error {
 	batch := make([]store.FileIndexEntry, 0, reindexBatchSize)
+	textBatch := make([]store.DocumentTextEntry, 0, reindexBatchSize)
 	flush := func() error {
 		if len(batch) == 0 {
 			return nil
@@ -167,9 +448,13 @@ func (s *Server) scanUserRoot(ctx context.Context, user store.User, scanID strin
 		if err := s.store.UpsertFileIndexEntries(ctx, batch); err != nil {
 			return err
 		}
+		if err := s.store.UpsertDocumentTextEntries(ctx, textBatch); err != nil {
+			return err
+		}
 		count := len(batch)
 		last := batch[count-1].Path
 		batch = batch[:0]
+		textBatch = textBatch[:0]
 		s.jobs.update(jobID, func(job *AdminJob) {
 			job.Done += int64(count)
 			job.Message = "indexed " + user.Username + ":" + last
@@ -177,7 +462,22 @@ func (s *Server) scanUserRoot(ctx context.Context, user store.User, scanID strin
 		return nil
 	}
 
-	if err := filepath.WalkDir(root, func(physical string, d os.DirEntry, err error) error {
+	if startLogical != "" && startLogical != "/" {
+		info, err := os.Lstat(start)
+		if err != nil {
+			return err
+		}
+		entry, textEntry := s.indexEntryForPath(user, start, startLogical, info, scanID)
+		batch = append(batch, entry)
+		if textEntry != nil {
+			textBatch = append(textBatch, *textEntry)
+		}
+	}
+
+	if err := filepath.WalkDir(start, func(physical string, d os.DirEntry, err error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
 				return nil
@@ -185,6 +485,9 @@ func (s *Server) scanUserRoot(ctx context.Context, user store.User, scanID strin
 			return err
 		}
 		if physical == root {
+			return nil
+		}
+		if startLogical != "" && physical == start {
 			return nil
 		}
 
@@ -211,22 +514,11 @@ func (s *Server) scanUserRoot(ctx context.Context, user store.User, scanID strin
 			return err
 		}
 
-		entryType := "file"
-		if info.IsDir() {
-			entryType = "dir"
-		}
-		indexEntry := store.FileIndexEntry{
-			UserID:       user.ID,
-			Path:         logical,
-			Name:         path.Base(logical),
-			Type:         entryType,
-			Size:         info.Size(),
-			ModifiedAt:   info.ModTime().UTC(),
-			MimeType:     mime.TypeByExtension(strings.ToLower(filepath.Ext(physical))),
-			PreviewKind:  preview.KindForName(physical),
-			LastSeenScan: scanID,
-		}
+		indexEntry, textEntry := s.indexEntryForPath(user, physical, logical, info, scanID)
 		batch = append(batch, indexEntry)
+		if textEntry != nil {
+			textBatch = append(textBatch, *textEntry)
+		}
 		if len(batch) >= reindexBatchSize {
 			return flush()
 		}
@@ -237,6 +529,56 @@ func (s *Server) scanUserRoot(ctx context.Context, user store.User, scanID strin
 	return flush()
 }
 
+func (s *Server) scanSinglePath(ctx context.Context, user store.User, physical string, logical string, info os.FileInfo, scanID string, jobID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	indexEntry, textEntry := s.indexEntryForPath(user, physical, logical, info, scanID)
+	if err := s.store.UpsertFileIndexEntry(ctx, indexEntry); err != nil {
+		return err
+	}
+	if textEntry != nil {
+		if err := s.store.UpsertDocumentTextEntry(ctx, *textEntry); err != nil {
+			return err
+		}
+	}
+	s.jobs.update(jobID, func(job *AdminJob) {
+		job.Done++
+		job.Message = "indexed " + user.Username + ":" + logical
+	})
+	return nil
+}
+
+func (s *Server) indexEntryForPath(user store.User, physical string, logical string, info os.FileInfo, scanID string) (store.FileIndexEntry, *store.DocumentTextEntry) {
+	entryType := "file"
+	if info.IsDir() {
+		entryType = "dir"
+	}
+	indexEntry := store.FileIndexEntry{
+		UserID:       user.ID,
+		Path:         logical,
+		Name:         path.Base(logical),
+		Type:         entryType,
+		Size:         info.Size(),
+		ModifiedAt:   info.ModTime().UTC(),
+		MimeType:     mime.TypeByExtension(strings.ToLower(filepath.Ext(physical))),
+		PreviewKind:  preview.KindForName(physical),
+		LastSeenScan: scanID,
+	}
+	if indexEntry.Type != "file" || !files.SupportsTextIndex(indexEntry.PreviewKind) {
+		return indexEntry, nil
+	}
+	content, err := files.ReadTextForIndex(physical)
+	if err != nil {
+		content = ""
+	}
+	return indexEntry, &store.DocumentTextEntry{
+		UserID:  user.ID,
+		Path:    logical,
+		Content: content,
+	}
+}
+
 func (s *Server) runPreviewWarmupJob(ctx context.Context, jobID string) {
 	candidates, err := s.store.ListPreviewCandidates(ctx)
 	if err != nil {
@@ -244,7 +586,7 @@ func (s *Server) runPreviewWarmupJob(ctx context.Context, jobID string) {
 		return
 	}
 
-	sizes := []int{240, 420, 1024}
+	sizes := previewWarmupSizes
 	s.jobs.update(jobID, func(job *AdminJob) {
 		job.Total = int64(len(candidates) * len(sizes))
 		job.TotalKnown = true
@@ -257,6 +599,10 @@ func (s *Server) runPreviewWarmupJob(ctx context.Context, jobID string) {
 
 	s.runPreviewWarmupWorkers(ctx, jobID, candidates, sizes)
 
+	if err := ctx.Err(); err != nil {
+		s.finishJob(jobID, "canceled", "preview warmup canceled")
+		return
+	}
 	if snapshot := s.jobs.Snapshot(); snapshot != nil && snapshot.ID == jobID && snapshot.Failed > 0 {
 		s.finishJob(jobID, "failed", "preview warmup completed with errors")
 		return
@@ -294,7 +640,14 @@ func (s *Server) runPreviewWarmupWorkers(ctx context.Context, jobID string, cand
 	go func() {
 		for _, candidate := range candidates {
 			for _, size := range sizes {
-				tasks <- previewWarmupTask{candidate: candidate, size: size}
+				select {
+				case <-ctx.Done():
+					close(tasks)
+					wg.Wait()
+					close(results)
+					return
+				case tasks <- previewWarmupTask{candidate: candidate, size: size}:
+				}
 			}
 		}
 		close(tasks)
@@ -336,11 +689,11 @@ func (s *Server) warmPreview(ctx context.Context, task previewWarmupTask) previe
 		result.err = err
 		return result
 	}
-	cachePath := thumbnailCachePath(s.cfg.PreviewDir, candidate.UserID, resolved.Logical, info.Size(), info.ModTime().UnixNano(), task.size)
+	cachePath := thumbnailCachePathInode(s.cfg.PreviewDir, candidate.UserID, resolved.Logical, info, task.size)
 	if _, err := os.Stat(cachePath); errors.Is(err, os.ErrNotExist) {
 		if err := os.MkdirAll(filepath.Dir(cachePath), 0o750); err != nil {
 			result.err = err
-		} else if err := generateThumbnail(ctx, resolved.Physical, candidate.PreviewKind, task.size, cachePath); err != nil {
+		} else if err := s.generateThumbnail(ctx, resolved.Physical, candidate.PreviewKind, task.size, cachePath); err != nil {
 			result.err = err
 		}
 	} else if err != nil {
@@ -371,6 +724,7 @@ func (s *Server) finishJob(jobID, status, message string) {
 	s.jobs.update(jobID, func(job *AdminJob) {
 		job.Status = status
 		job.FinishedAt = &now
+		job.Cancelable = false
 		job.Message = message
 	})
 	s.log.Info("admin job finished", "job_id", jobID, "status", status, "message", message)

@@ -26,7 +26,10 @@ type Config struct {
 	CookieSecure           bool
 	SessionTTL             time.Duration
 	EnableWatcher          bool
+	ReconcileInterval      time.Duration
+	UploadTTL              time.Duration
 	PreviewWorkers         int
+	PreviewTimeout         time.Duration
 	DevLatencyMin          time.Duration
 	DevLatencyMax          time.Duration
 }
@@ -41,6 +44,18 @@ func Load() (Config, error) {
 	appData := env("GODRIVE_APPDATA_DIR", filepath.Join(cwd, "var", "appdata"))
 
 	sessionTTL, err := time.ParseDuration(env("GODRIVE_SESSION_TTL", "720h"))
+	if err != nil {
+		return Config{}, err
+	}
+	reconcileInterval, err := parseOptionalDuration("GODRIVE_RECONCILE_INTERVAL", "24h")
+	if err != nil {
+		return Config{}, err
+	}
+	uploadTTL, err := parseOptionalDuration("GODRIVE_UPLOAD_TTL", "48h")
+	if err != nil {
+		return Config{}, err
+	}
+	previewTimeout, err := parseOptionalDuration("GODRIVE_PREVIEW_TIMEOUT", "45s")
 	if err != nil {
 		return Config{}, err
 	}
@@ -65,7 +80,10 @@ func Load() (Config, error) {
 		CookieSecure:           envBool("GODRIVE_COOKIE_SECURE", false),
 		SessionTTL:             sessionTTL,
 		EnableWatcher:          envBool("GODRIVE_ENABLE_WATCHER", true),
+		ReconcileInterval:      reconcileInterval,
+		UploadTTL:              uploadTTL,
 		PreviewWorkers:         envInt("GODRIVE_PREVIEW_WORKERS", 0),
+		PreviewTimeout:         previewTimeout,
 		DevLatencyMin:          devLatencyMin,
 		DevLatencyMax:          devLatencyMax,
 	}
@@ -73,8 +91,26 @@ func Load() (Config, error) {
 	if cfg.BootstrapAdminUser == "" {
 		return Config{}, errors.New("GODRIVE_BOOTSTRAP_ADMIN_USER cannot be empty")
 	}
+	if err := cfg.ValidateStorageLayout(); err != nil {
+		return Config{}, err
+	}
 
 	return cfg, nil
+}
+
+func parseOptionalDuration(key string, fallback string) (time.Duration, error) {
+	raw := strings.TrimSpace(env(key, fallback))
+	if raw == "" || raw == "0" {
+		return 0, nil
+	}
+	value, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, err
+	}
+	if value < 0 {
+		return 0, fmt.Errorf("%s cannot be negative", key)
+	}
+	return value, nil
 }
 
 func parseLatencyRange(raw string) (time.Duration, time.Duration, error) {
@@ -123,6 +159,176 @@ func (c Config) EnsureDirs() error {
 		}
 	}
 	return nil
+}
+
+func (c Config) ValidateStorageLayout() error {
+	if err := validateNonRootDir("GODRIVE_DATA_ROOT", c.DataRoot); err != nil {
+		return err
+	}
+	if err := validateNonRootDir("GODRIVE_APPDATA_DIR", c.AppDataDir); err != nil {
+		return err
+	}
+	if err := validateNonRootDir("GODRIVE_UPLOAD_DIR", c.UploadDir); err != nil {
+		return err
+	}
+	if err := validateNonRootDir("GODRIVE_TRASH_DIR", c.TrashDir); err != nil {
+		return err
+	}
+	if err := c.ValidatePreviewCacheDir(); err != nil {
+		return err
+	}
+	if err := validateNoOverlap("GODRIVE_DATA_ROOT", c.DataRoot, "GODRIVE_APPDATA_DIR", c.AppDataDir); err != nil {
+		return err
+	}
+	for _, dir := range []struct {
+		name string
+		path string
+	}{
+		{name: "GODRIVE_UPLOAD_DIR", path: c.UploadDir},
+		{name: "GODRIVE_TRASH_DIR", path: c.TrashDir},
+	} {
+		if err := validateNoOverlap(dir.name, dir.path, "GODRIVE_DATA_ROOT", c.DataRoot); err != nil {
+			return err
+		}
+		if err := validateNotEqual(dir.name, dir.path, "GODRIVE_APPDATA_DIR", c.AppDataDir); err != nil {
+			return err
+		}
+	}
+	if err := validateNoOverlap("GODRIVE_UPLOAD_DIR", c.UploadDir, "GODRIVE_TRASH_DIR", c.TrashDir); err != nil {
+		return err
+	}
+	if c.DatabasePath != "" {
+		if err := validatePathNotInDir("GODRIVE_DB_PATH", c.DatabasePath, "GODRIVE_UPLOAD_DIR", c.UploadDir); err != nil {
+			return err
+		}
+		if err := validatePathNotInDir("GODRIVE_DB_PATH", c.DatabasePath, "GODRIVE_TRASH_DIR", c.TrashDir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c Config) ValidatePreviewCacheDir() error {
+	if err := validateNonRootDir("GODRIVE_PREVIEW_DIR", c.PreviewDir); err != nil {
+		return err
+	}
+	if err := validateNotEqual("GODRIVE_PREVIEW_DIR", c.PreviewDir, "GODRIVE_APPDATA_DIR", c.AppDataDir); err != nil {
+		return err
+	}
+	for _, protected := range []struct {
+		name string
+		path string
+	}{
+		{name: "GODRIVE_DATA_ROOT", path: c.DataRoot},
+		{name: "GODRIVE_UPLOAD_DIR", path: c.UploadDir},
+		{name: "GODRIVE_TRASH_DIR", path: c.TrashDir},
+	} {
+		if err := validateNoOverlap("GODRIVE_PREVIEW_DIR", c.PreviewDir, protected.name, protected.path); err != nil {
+			return err
+		}
+	}
+	if c.DatabasePath != "" {
+		if err := validatePathNotInDir("GODRIVE_DB_PATH", c.DatabasePath, "GODRIVE_PREVIEW_DIR", c.PreviewDir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateNonRootDir(name, dir string) error {
+	if strings.TrimSpace(dir) == "" {
+		return fmt.Errorf("%s cannot be empty", name)
+	}
+	clean, err := cleanAbs(dir)
+	if err != nil {
+		return fmt.Errorf("%s is invalid: %w", name, err)
+	}
+	if clean == filepath.VolumeName(clean)+string(filepath.Separator) {
+		return fmt.Errorf("%s cannot be the filesystem root", name)
+	}
+	return nil
+}
+
+func validateNoOverlap(leftName, left, rightName, right string) error {
+	if strings.TrimSpace(left) == "" || strings.TrimSpace(right) == "" {
+		return nil
+	}
+	overlap, err := pathsOverlap(left, right)
+	if err != nil {
+		return err
+	}
+	if overlap {
+		return fmt.Errorf("%s must not overlap %s", leftName, rightName)
+	}
+	return nil
+}
+
+func validateNotEqual(leftName, left, rightName, right string) error {
+	if strings.TrimSpace(left) == "" || strings.TrimSpace(right) == "" {
+		return nil
+	}
+	leftAbs, err := cleanAbs(left)
+	if err != nil {
+		return fmt.Errorf("%s is invalid: %w", leftName, err)
+	}
+	rightAbs, err := cleanAbs(right)
+	if err != nil {
+		return fmt.Errorf("%s is invalid: %w", rightName, err)
+	}
+	if leftAbs == rightAbs {
+		return fmt.Errorf("%s must not equal %s", leftName, rightName)
+	}
+	return nil
+}
+
+func validatePathNotInDir(pathName, path, dirName, dir string) error {
+	if strings.TrimSpace(path) == "" || strings.TrimSpace(dir) == "" {
+		return nil
+	}
+	contained, err := pathContains(dir, path)
+	if err != nil {
+		return err
+	}
+	if contained {
+		return fmt.Errorf("%s must not be inside %s", pathName, dirName)
+	}
+	return nil
+}
+
+func pathsOverlap(left, right string) (bool, error) {
+	leftContainsRight, err := pathContains(left, right)
+	if err != nil {
+		return false, err
+	}
+	rightContainsLeft, err := pathContains(right, left)
+	if err != nil {
+		return false, err
+	}
+	return leftContainsRight || rightContainsLeft, nil
+}
+
+func pathContains(parent, child string) (bool, error) {
+	parentAbs, err := cleanAbs(parent)
+	if err != nil {
+		return false, err
+	}
+	childAbs, err := cleanAbs(child)
+	if err != nil {
+		return false, err
+	}
+	rel, err := filepath.Rel(parentAbs, childAbs)
+	if err != nil {
+		return false, err
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))), nil
+}
+
+func cleanAbs(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(abs), nil
 }
 
 func env(key, fallback string) string {

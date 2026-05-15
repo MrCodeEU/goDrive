@@ -1,14 +1,22 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"godrive/internal/store"
 )
+
+type reindexRequest struct {
+	Username string `json:"username"`
+	Path     string `json:"path"`
+}
 
 func (s *Server) adminStats(w http.ResponseWriter, r *http.Request, admin store.User, session store.Session) {
 	indexStats, err := s.store.IndexStats(r.Context())
@@ -46,16 +54,86 @@ func (s *Server) adminStats(w http.ResponseWriter, r *http.Request, admin store.
 			"files": cacheFiles,
 			"bytes": cacheBytes,
 		},
-		"current_job": s.jobs.Snapshot(),
+		"preview": map[string]any{
+			"workers": previewWarmupWorkerCount(s.cfg.PreviewWorkers),
+			"sizes":   previewWarmupSizes,
+			"tools":   PreviewToolStatuses(),
+		},
+		"watcher":        s.watcherStats(),
+		"reconciliation": s.reconciliationStats(),
+		"current_job":    s.jobs.Snapshot(),
 	})
+}
+
+func (s *Server) watcherStats() map[string]any {
+	if s.watcher == nil {
+		return map[string]any{
+			"enabled":       false,
+			"roots":         0,
+			"watched_paths": 0,
+			"events":        0,
+			"pending":       0,
+			"errors":        0,
+			"needs_rescan":  false,
+		}
+	}
+	stats := s.watcher.Stats()
+	return map[string]any{
+		"enabled":       stats.Enabled,
+		"roots":         stats.Roots,
+		"watched_paths": stats.WatchedPaths,
+		"events":        stats.Events,
+		"pending":       stats.Pending,
+		"errors":        stats.Errors,
+		"last_error":    stats.LastError,
+		"last_error_at": stats.LastErrorAt,
+		"last_event_at": stats.LastEventAt,
+		"last_index_at": stats.LastIndexAt,
+		"needs_rescan":  stats.NeedsRescan,
+	}
+}
+
+func (s *Server) reconciliationStats() map[string]any {
+	interval := s.cfg.ReconcileInterval
+	return map[string]any{
+		"enabled":          interval > 0,
+		"interval_seconds": int64(interval / time.Second),
+		"interval":         interval.String(),
+	}
 }
 
 func (s *Server) currentAdminJob(w http.ResponseWriter, r *http.Request, admin store.User, session store.Session) {
 	writeJSON(w, http.StatusOK, map[string]any{"job": s.jobs.Snapshot()})
 }
 
+func (s *Server) cancelAdminJob(w http.ResponseWriter, r *http.Request, admin store.User, session store.Session) {
+	job := s.jobs.CancelCurrent()
+	if job == nil {
+		writeError(w, http.StatusConflict, "no running admin job")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"job": job})
+}
+
 func (s *Server) startReindex(w http.ResponseWriter, r *http.Request, admin store.User, session store.Session) {
-	job, err := s.startReindexJob()
+	var req reindexRequest
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			writeError(w, http.StatusBadRequest, "invalid reindex request")
+			return
+		}
+	}
+	var job *AdminJob
+	var err error
+	if req.Path != "" {
+		if req.Username == "" {
+			writeError(w, http.StatusBadRequest, "username is required for scoped reindex")
+			return
+		}
+		job, err = s.startReindexPathJob(req.Username, req.Path)
+	} else {
+		job, err = s.startReindexJob()
+	}
 	if err != nil {
 		if errors.Is(err, errJobRunning) {
 			writeError(w, http.StatusConflict, "another admin job is already running")
@@ -78,6 +156,23 @@ func (s *Server) startPreviewWarmup(w http.ResponseWriter, r *http.Request, admi
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"job": job})
+}
+
+func (s *Server) clearPreviewCache(w http.ResponseWriter, r *http.Request, admin store.User, session store.Session) {
+	if err := s.cfg.ValidatePreviewCacheDir(); err != nil {
+		writeError(w, http.StatusInternalServerError, "invalid preview cache directory")
+		return
+	}
+	if err := os.RemoveAll(s.cfg.PreviewDir); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to clear preview cache")
+		return
+	}
+	if err := os.MkdirAll(s.cfg.PreviewDir, 0o750); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to recreate preview cache")
+		return
+	}
+	s.log.Info("preview cache cleared", "dir", s.cfg.PreviewDir)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func directoryStats(root string) (files int64, bytes int64, err error) {

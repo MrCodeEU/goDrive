@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"godrive/internal/auth"
 	"godrive/internal/files"
@@ -62,12 +63,12 @@ func (s *Server) tusCreate(w http.ResponseWriter, r *http.Request, user store.Us
 		writeError(w, http.StatusInternalServerError, "failed to create upload")
 		return
 	}
-	userUploadDir := filepath.Join(s.cfg.UploadDir, fmt.Sprintf("%d", user.ID))
+	userUploadDir := uploadUserDir(s.cfg.UploadDir, user.ID)
 	if err := os.MkdirAll(userUploadDir, 0o750); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create upload directory")
 		return
 	}
-	tempPath := filepath.Join(userUploadDir, id+".part")
+	tempPath := expectedUploadTempPath(s.cfg.UploadDir, user.ID, id)
 
 	file, err := os.OpenFile(tempPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o640)
 	if err != nil {
@@ -167,12 +168,14 @@ func (s *Server) tusPatch(w http.ResponseWriter, r *http.Request, user store.Use
 		return
 	}
 
-	file, err := os.OpenFile(upload.TempPath, os.O_WRONLY, 0)
+	file, err := openUploadTempForWrite(s.cfg.UploadDir, upload)
 	if err != nil {
 		writeError(w, statusForError(err), "failed to open upload")
 		return
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 
 	if err := file.Truncate(upload.Offset); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to repair upload offset")
@@ -227,7 +230,12 @@ func (s *Server) tusDelete(w http.ResponseWriter, r *http.Request, user store.Us
 		writeError(w, http.StatusConflict, "upload already completed")
 		return
 	}
-	_ = os.Remove(upload.TempPath)
+	tempPath, err := validateUploadTempPath(s.cfg.UploadDir, upload)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "invalid upload temp file")
+		return
+	}
+	_ = os.Remove(tempPath)
 	if err := s.store.DeleteUpload(r.Context(), upload.ID); err != nil {
 		writeError(w, statusForError(err), "failed to delete upload")
 		return
@@ -260,6 +268,9 @@ func (s *Server) completeUpload(r *http.Request, user store.User, id string) (fi
 	if upload.Offset != upload.UploadLength {
 		return files.Entry{}, errors.New("upload is incomplete")
 	}
+	if _, err := validateUploadTempPath(s.cfg.UploadDir, upload); err != nil {
+		return files.Entry{}, fmt.Errorf("invalid upload temp file: %w", err)
+	}
 
 	entry, err := s.files.FinalizeUpload(user, upload.TempPath, upload.TargetDir, upload.Filename)
 	if err != nil {
@@ -268,6 +279,16 @@ func (s *Server) completeUpload(r *http.Request, user store.User, id string) (fi
 	if err := s.store.CompleteUpload(r.Context(), upload.ID, entry.Path); err != nil {
 		return files.Entry{}, err
 	}
+	s.refreshIndexPath(r.Context(), user, entry.Path)
+	if entry.PreviewKind == "image" || entry.PreviewKind == "video" || entry.PreviewKind == "pdf" {
+		go s.generateThumbnailsAsync(user, entry)
+	}
+	s.fireEvent(user, "upload.complete", map[string]any{
+		"path":         entry.Path,
+		"size":         entry.Size,
+		"mime_type":    entry.MimeType,
+		"preview_kind": entry.PreviewKind,
+	})
 	return entry, nil
 }
 
@@ -329,4 +350,63 @@ func copyUploadChunk(file *os.File, reader io.Reader, offset, uploadLength int64
 		return offset, errors.New("chunk exceeds declared upload length")
 	}
 	return offset + n, nil
+}
+
+func uploadUserDir(uploadDir string, userID int64) string {
+	return filepath.Join(uploadDir, fmt.Sprintf("%d", userID))
+}
+
+func expectedUploadTempPath(uploadDir string, userID int64, id string) string {
+	return filepath.Join(uploadUserDir(uploadDir, userID), id+".part")
+}
+
+func validateUploadTempPath(uploadDir string, upload store.Upload) (string, error) {
+	if strings.TrimSpace(uploadDir) == "" || strings.TrimSpace(upload.ID) == "" || strings.TrimSpace(upload.TempPath) == "" {
+		return "", errors.New("upload temp path is incomplete")
+	}
+	expected, err := filepath.Abs(expectedUploadTempPath(uploadDir, upload.UserID, upload.ID))
+	if err != nil {
+		return "", err
+	}
+	actual, err := filepath.Abs(upload.TempPath)
+	if err != nil {
+		return "", err
+	}
+	expected = filepath.Clean(expected)
+	actual = filepath.Clean(actual)
+	if actual != expected {
+		return "", fmt.Errorf("upload temp path %q does not match expected path", upload.TempPath)
+	}
+	info, err := os.Lstat(actual)
+	if err != nil {
+		return "", err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", errors.New("upload temp path cannot be a symlink")
+	}
+	if !info.Mode().IsRegular() {
+		return "", errors.New("upload temp path must be a regular file")
+	}
+	return actual, nil
+}
+
+func openUploadTempForWrite(uploadDir string, upload store.Upload) (*os.File, error) {
+	tempPath, err := validateUploadTempPath(uploadDir, upload)
+	if err != nil {
+		return nil, err
+	}
+	file, err := os.OpenFile(tempPath, os.O_WRONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		_ = file.Close()
+		return nil, errors.New("upload temp path must be a regular file")
+	}
+	return file, nil
 }

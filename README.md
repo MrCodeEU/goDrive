@@ -1,171 +1,224 @@
 # goDrive
 
-goDrive is a small self-hosted file manager for local disks. The filesystem is the source of truth; SQLite stores users, sessions, trash records, resumable upload state, and rebuildable operational metadata.
+Self-hosted file manager for families. Filesystem is the source of truth. SQLite stores metadata only — sessions, index, trash records, upload state. Everything is rebuildable from disk.
 
-## Current State
+## Features
 
-Implemented foundation:
+**Web UI (Svelte/SVAR)**
+- File browser with list and grid views, drag-and-drop upload, breadcrumb navigation
+- Image lightbox with zoom, pan, prev/next, original/preview toggle
+- In-browser video player, PDF viewer (native), text/Markdown preview, RAW/Office cached previews
+- Upload queue with TUS resume, per-file progress, persistence across reloads
+- Trash management, search (indexed filename/path), admin modal
 
-- Go HTTP API.
-- SQLite migrations.
-- Argon2id password hashing.
-- Cookie and bearer-token sessions.
-- CSRF checks for cookie-authenticated writes.
-- Per-user home roots.
-- Safe logical path resolution under each user root.
-- Folder listing, mkdir, download, move/rename, delete-to-trash, restore, and permanent trash delete.
-- Minimal TUS 1.0-compatible upload creation, resume, patch, and termination endpoints.
-- Preview type classification for images, video, PDF, text, Markdown, and 3D files.
-- Cached thumbnails for image, video, and PDF preview candidates.
-- Admin reindex and preview warmup jobs with progress.
-- Batched reindex writes and parallel preview warmup workers.
-- Recursive fsnotify watcher that logs external filesystem changes.
-- Embedded vanilla web UI.
-- Experimental Svelte/Vite/SVAR file-manager UI under `web/`.
-- Svelte upload queue with per-file progress and retry for failed uploads.
+**Backend**
+- TUS resumable uploads with atomic finalization and conflict suffix
+- Inode-based thumbnail cache — stable across renames/moves on the same filesystem
+- Post-upload thumbnail generation (all warmup sizes generated asynchronously after each upload)
+- Cached previews for images, RAW photos, video poster frames, PDFs, and Office documents
+- Login rate limiting, CSRF protection, Argon2id password hashing
+- Webhook/event API: subscribers receive `upload.complete`, `file.moved`, `file.deleted`, `file.restored` events with HMAC-SHA256 signature
+- Periodic reconciliation scanner + fsnotify watcher for external changes (SMB, rsync, shell)
+- Folder listing pagination (offset/limit) with load-more
 
-Flutter clients, WebDAV, and full-text search are not implemented yet.
+**Mobile (Flutter)**
+- Android/iOS app: file browser (list + grid), image viewer, in-app video player
+- TUS upload queue with resume, wakelock during active uploads
+- Android foreground-service and iOS background URLSession upload options for selected files
+- Admin screen: stats, reindex/warmup jobs, user management, webhook management
 
-## Run Locally
+**Deployment**
+- Docker: multi-stage build, multi-arch (`amd64`/`arm64`), `ghcr.io` publish on version tags
+- Unraid/NAS: docker-compose in `deploy/` with clear data/appdata/cache volume separation
 
-First boot requires an admin password:
+## Quick Start
 
-```sh
-GODRIVE_BOOTSTRAP_ADMIN_PASSWORD=change-me go run ./cmd/godrive
-```
-
-Or create `.env` from `.env.example` and use:
-
-```sh
-make run
-```
-
-Defaults:
-
-- API address: `127.0.0.1:8121` when using `.env.example`; built-in fallback is `127.0.0.1:8080`
-- Data root: `./var/data`
-- App data: `./var/appdata`
-- Admin username: `admin`
-- Admin home root: `./var/data/admin`
-
-The web UI is served at `/` on the configured address.
-
-After the first admin exists, `GODRIVE_BOOTSTRAP_ADMIN_PASSWORD` is ignored.
-
-## Svelte/SVAR UI
-
-The SVAR spike runs separately during development:
+Copy `.env.example` to `.env` and set at minimum:
 
 ```sh
-make run
-make web-dev
+GODRIVE_BOOTSTRAP_ADMIN_PASSWORD=change-me
+GODRIVE_DATA_ROOT=/path/to/your/files
+GODRIVE_ADDR=0.0.0.0:8121
 ```
 
-Open:
-
-```text
-http://127.0.0.1:5173/files
-```
-
-Vite proxies `/api` and `/health` to `http://127.0.0.1:8121`.
-
-Folder navigation is stored in the browser URL:
-
-```text
-/files/Photos/2026/Trip
-```
-
-The older `?path=/Photos/2026/Trip` form is still accepted and normalized on the next navigation. UI preferences such as SVAR view mode are stored in `localStorage`, not cookies.
-
-Useful frontend commands:
+Then:
 
 ```sh
-make web-install
-make web-check
-make web-build
+make run          # backend on :8121
+make web-dev      # Svelte dev server on :5173 (proxies /api to :8121)
 ```
 
-## Admin Jobs
+Open `http://127.0.0.1:5173/files`.
 
-Admin jobs currently support:
-
-- Full reindex.
-- Preview warmup.
-
-Preview warmup generates cached `240`, `420`, and `1024` thumbnails. Worker count is controlled by:
-
-```text
-GODRIVE_PREVIEW_WORKERS=0
-```
-
-`0` means automatic sizing: half the CPU count, clamped between 2 and 64 workers. On small NAS hardware, start with `2` to `4`. On a stronger local server, `8` to `16` is a reasonable first test.
-
-The preview cache is rebuildable. User data and trash are not.
-
-## Current Roadmap
-
-Near-term:
-
-- Verify larger multi-file upload batches against real phone/camera exports.
-- Persist the upload queue across page reloads where browser `File` handles allow it, or add clear recovery messaging.
-- Add current-folder and indexed filename search.
-- Add server-backed pagination/cursor listing before testing very large single folders.
-- Improve image viewer with next/previous navigation, zoom/pan, and higher-resolution preview/original viewing.
-- Make admin settings more complete: worker count, preview sizes, cache stats, and reindex status.
-
-Later:
-
-- WebDAV compatibility.
-- Flutter app skeleton.
-- Flutter upload queue.
-- Extended previews for Office, RAW, and 3D files.
-- Full-text search with SQLite FTS/Tika or an external engine.
-
-## Useful API Calls
-
-Login:
+## Docker
 
 ```sh
-curl -c /tmp/godrive.cookies \
+# Local dev
+docker compose -f deploy/docker-compose.local.yml up
+
+# Production (edit volume paths first)
+docker compose -f deploy/docker-compose.yml up -d
+```
+
+Release images are published to `ghcr.io/<owner>/godrive` on `v*` tags.
+
+## Mobile (Android)
+
+```sh
+# First time — generate platform scaffold
+flutter create --project-name godrive --org com.example --platforms android,ios mobile
+
+make mobile-install
+
+# Run on emulator (starts emulator + backend if needed)
+make mobile-dev
+
+# Or just run (emulator + backend already running)
+make mobile-run
+
+# Debug APK
+make mobile-build-android
+```
+
+The emulator reaches the backend at `http://10.0.2.2:8121` (Android emulator maps `10.0.2.2` → host `127.0.0.1`).
+
+## Webhooks
+
+Register a subscriber to receive file events:
+
+```sh
+TOKEN='<admin bearer token>'
+
+curl -X POST http://127.0.0.1:8121/api/webhooks \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"change-me"}' \
-  http://127.0.0.1:8080/api/auth/login
+  -d '{"url":"https://sorter.internal/events","events":["upload.complete"],"description":"HEIC sorter"}'
 ```
 
-List files:
+Response includes a `secret` used to verify `X-GoDrive-Signature: sha256=<hmac>` on each delivery.
+
+Events: `upload.complete`, `file.moved`, `file.deleted`, `file.restored`.
+
+Empty `events` array = subscribe to all events.
+
+Test a subscription:
 
 ```sh
-curl -b /tmp/godrive.cookies 'http://127.0.0.1:8080/api/files/list?path=/'
+curl -X POST http://127.0.0.1:8121/api/webhooks/<id>/test \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
-TUS upload flow:
+## CLI Maintenance
 
 ```sh
-TOKEN='<token returned by /api/auth/login>'
-
-LOCATION=$(curl -i \
-  -H "Authorization: Bearer ${TOKEN}" \
-  -H 'Tus-Resumable: 1.0.0' \
-  -H 'Upload-Length: 11' \
-  -H 'Upload-Metadata: filename aGVsbG8udHh0' \
-  -X POST 'http://127.0.0.1:8080/api/tus?path=/' \
-  | awk '/^Location:/ {print $2}' | tr -d '\r')
-
-printf 'hello world' | curl -i \
-  -H "Authorization: Bearer ${TOKEN}" \
-  -H 'Tus-Resumable: 1.0.0' \
-  -H 'Content-Type: application/offset+octet-stream' \
-  -H 'Upload-Offset: 0' \
-  --data-binary @- \
-  -X PATCH "http://127.0.0.1:8080${LOCATION}"
+godrive status
+godrive verify
+godrive reindex
+godrive reindex --user alice
+godrive preview-warmup
+godrive preview-cache clear
+godrive uploads cleanup --ttl 48h
+godrive admin create --username admin --password 'change-me' --root ./var/data/admin
+godrive admin reset-password --username admin --password 'new-password'
 ```
 
-For cookie-authenticated state-changing API requests, send `X-CSRF-Token` using the value returned by login. Bearer-token clients can send `Authorization: Bearer <token>` instead.
+## Environment Variables
 
-## Verify
+| Variable | Default | Description |
+|---|---|---|
+| `GODRIVE_ADDR` | `127.0.0.1:8080` | HTTP listen address |
+| `GODRIVE_DATA_ROOT` | `./var/data` | User files root |
+| `GODRIVE_APPDATA_DIR` | `./var/appdata` | DB, trash, uploads, previews |
+| `GODRIVE_DB_PATH` | `{appdata}/godrive.sqlite` | SQLite database path |
+| `GODRIVE_BOOTSTRAP_ADMIN_USER` | `admin` | First-boot admin username |
+| `GODRIVE_BOOTSTRAP_ADMIN_PASSWORD` | _(none)_ | First-boot admin password (ignored after admin exists) |
+| `GODRIVE_BOOTSTRAP_ADMIN_ROOT` | `{data}/admin` | First-boot admin home root |
+| `GODRIVE_SESSION_TTL` | `720h` | Session lifetime |
+| `GODRIVE_COOKIE_SECURE` | `false` | Set `true` behind HTTPS |
+| `GODRIVE_ENABLE_WATCHER` | `true` | fsnotify watcher for external changes |
+| `GODRIVE_RECONCILE_INTERVAL` | `24h` | Full reconciliation scan interval (`0` disables) |
+| `GODRIVE_UPLOAD_TTL` | `48h` | Incomplete TUS upload expiry (`0` disables cleanup) |
+| `GODRIVE_PREVIEW_WORKERS` | `0` | Thumbnail worker count (`0` = auto: half CPUs, 2–64) |
+| `GODRIVE_PREVIEW_TIMEOUT` | `45s` | Per-file timeout for external preview tools |
+| `GODRIVE_PREVIEW_DIR` | `{appdata}/previews` | Rebuildable thumbnail cache |
+| `GODRIVE_UPLOAD_DIR` | `{appdata}/uploads` | TUS staging area |
+| `GODRIVE_TRASH_DIR` | `{appdata}/trash` | Trash storage (durable — back up) |
+| `GODRIVE_DEV_LATENCY` | _(none)_ | Inject fake API latency, e.g. `10ms-25ms` |
+
+## Volume Categories (Backup Guide)
+
+Preview tools run with bounded wall-clock time, capped command output, isolated temp HOME/XDG/TMP directories, process-group cleanup, and, when the host provides `prlimit`, CPU/address-space/output-file/open-file resource limits. `prlimit` is included in the Docker runtime image through util-linux on Debian-based images; bare-metal installs should provide it for the same hard limits.
+
+```text
+/data/users/alice     → user files               BACK UP
+/appdata/godrive.db   → durable app state        BACK UP
+/appdata/trash/       → durable app state        BACK UP
+/appdata/previews/    → rebuildable cache        safe to delete
+/appdata/uploads/     → in-progress TUS uploads  safe to delete when server is down
+```
+
+## API Summary
+
+```text
+POST   /api/auth/login
+POST   /api/auth/logout
+GET    /api/me
+
+GET    /api/files/list?path=&offset=&limit=
+GET    /api/files/search?q=&limit=
+POST   /api/files/mkdir
+GET    /api/files/download?path=
+GET    /api/files/raw?path=
+GET    /api/files/text?path=
+GET    /api/files/thumbnail?path=&size=
+POST   /api/files/move
+DELETE /api/files?path=
+POST   /api/files/bulk/delete
+POST   /api/files/bulk/move
+POST   /api/files/bulk/download
+
+ALL    /api/tus/*
+
+GET    /api/trash
+POST   /api/trash/{id}/restore
+DELETE /api/trash/{id}
+
+GET    /api/admin/users
+POST   /api/admin/users
+PATCH  /api/admin/users/{id}
+POST   /api/admin/users/{id}/password
+GET    /api/admin/stats
+GET    /api/admin/jobs/current
+POST   /api/admin/jobs/reindex
+POST   /api/admin/jobs/preview-warmup
+DELETE /api/admin/preview-cache
+
+GET    /api/webhooks
+POST   /api/webhooks
+DELETE /api/webhooks/{id}
+POST   /api/webhooks/{id}/test
+```
+
+Bearer token auth skips CSRF. Cookie auth requires `X-CSRF-Token` on mutating requests.
+
+## Quality Gate
 
 ```sh
-make test
-make web-check
-make web-build
+make check    # fmt-check + vet + golangci-lint + test + web-test + web-build
 ```
+
+Individual targets:
+
+```sh
+make test           # Go unit tests
+make test-race      # with race detector
+GOCACHE=/tmp/godrive-gocache go test ./internal/store -bench BenchmarkFileIndex400k -run '^$'
+make web-test       # Vitest frontend tests
+make web-check      # svelte-check type checking
+make mobile-test    # Flutter tests
+```
+
+Before putting real data behind the server, run the release gates:
+
+- [Security audit plan](docs/security-audit.md)
+- [Manual test plan](docs/manual-test-plan.md)

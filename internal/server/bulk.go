@@ -51,6 +51,8 @@ func (s *Server) bulkDelete(w http.ResponseWriter, r *http.Request, user store.U
 			results = append(results, bulkResult{Path: logical, OK: false, Error: err.Error()})
 			continue
 		}
+		s.deleteIndexPath(r.Context(), user, logical)
+		s.fireEvent(user, "file.deleted", map[string]any{"path": logical})
 		results = append(results, bulkResult{Path: logical, OK: true})
 	}
 
@@ -75,6 +77,9 @@ func (s *Server) bulkMove(w http.ResponseWriter, r *http.Request, user store.Use
 			results = append(results, bulkResult{Path: logical, OK: false, Error: err.Error()})
 			continue
 		}
+		s.deleteIndexPath(r.Context(), user, logical)
+		s.refreshIndexPath(r.Context(), user, entry.Path)
+		s.fireEvent(user, "file.moved", map[string]any{"old_path": logical, "path": entry.Path})
 		results = append(results, bulkResult{Path: logical, OK: true, Entry: &entry})
 	}
 
@@ -217,7 +222,9 @@ func addZipFile(zw *zip.Writer, physical, archiveName string, info fs.FileInfo) 
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 
 	_, err = io.Copy(writer, file)
 	return err

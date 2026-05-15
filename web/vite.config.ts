@@ -3,6 +3,10 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [svelte()],
+  build: {
+    outDir: "../internal/server/static",
+    emptyOutDir: true
+  },
   server: {
     port: 5173,
     proxy: {

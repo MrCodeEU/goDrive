@@ -24,6 +24,16 @@ export type LoginResponse = {
 export type ListResponse = {
   path: string;
   entries: FileEntry[];
+  total: number;
+  offset: number;
+  limit: number;
+  has_more: boolean;
+  next_cursor?: string;
+};
+
+export type SearchResponse = {
+  query: string;
+  entries: FileEntry[];
 };
 
 export type TrashItem = {
@@ -46,6 +56,10 @@ export type AdminJob = {
   total_known: boolean;
   done: number;
   failed: number;
+  deleted?: number;
+  user?: string;
+  scope?: string;
+  cancelable?: boolean;
   message: string;
 };
 
@@ -68,6 +82,20 @@ export type AdminStats = {
     files: number;
     bytes: number;
   };
+  preview: {
+    workers: number;
+    sizes: number[];
+  };
+  watcher: {
+    enabled: boolean;
+    roots: number;
+    watched_paths: number;
+  };
+  reconciliation: {
+    enabled: boolean;
+    interval_seconds: number;
+    interval: string;
+  };
   current_job?: AdminJob | null;
 };
 
@@ -80,11 +108,12 @@ export type UploadProgress = {
 export type UploadTransport = {
   fetch?: typeof fetch;
   xhrFactory?: () => XMLHttpRequest;
+  onUploadCreated?: (url: string) => void;
 };
 
 const TOKEN_KEY = "godrive_token";
 
-let token = localStorage.getItem(TOKEN_KEY) || "";
+let token = readToken();
 
 export function currentToken() {
   return token;
@@ -93,9 +122,9 @@ export function currentToken() {
 export function setToken(value: string) {
   token = value;
   if (value) {
-    localStorage.setItem(TOKEN_KEY, value);
+    storage()?.setItem(TOKEN_KEY, value);
   } else {
-    localStorage.removeItem(TOKEN_KEY);
+    storage()?.removeItem(TOKEN_KEY);
   }
 }
 
@@ -153,8 +182,41 @@ export async function me() {
   return response.user;
 }
 
-export async function listFiles(path: string) {
-  return api<ListResponse>(`/api/files/list?path=${encodeURIComponent(path || "/")}`);
+export type TextPreview = {
+  path: string;
+  name: string;
+  size: number;
+  truncated: boolean;
+  max_bytes: number;
+  content: string;
+  mime_type: string;
+  modified_at: string;
+};
+
+export async function fetchTextPreview(path: string) {
+  return api<TextPreview>(`/api/files/text?path=${encodeURIComponent(path)}`);
+}
+
+export async function listFiles(path: string, offset = 0, limit = 500, cursor = "") {
+  const params = new URLSearchParams({ path: path || "/", limit: String(limit) });
+  if (cursor) {
+    params.set("cursor", cursor);
+  } else {
+    params.set("offset", String(offset));
+  }
+  return api<ListResponse>(`/api/files/list?${params.toString()}`);
+}
+
+export async function listFileTree() {
+  return api<{ entries: FileEntry[] }>("/api/files/tree");
+}
+
+export async function searchFiles(query: string, limit = 50) {
+  const params = new URLSearchParams({
+    q: query,
+    limit: String(limit)
+  });
+  return api<SearchResponse>(`/api/files/search?${params.toString()}`);
 }
 
 export async function mkdir(path: string) {
@@ -185,12 +247,32 @@ export async function bulkMove(paths: string[], targetDir: string) {
   });
 }
 
+export async function bulkDownloadBlob(paths: string[]) {
+  const response = await fetch("/api/files/bulk/download", {
+    method: "POST",
+    headers: new Headers({
+      ...authHeaderObject(),
+      "Accept": "application/zip",
+      "Content-Type": "application/json"
+    }),
+    body: JSON.stringify({ paths })
+  });
+  if (!response.ok) {
+    throw new Error(await errorMessage(response));
+  }
+  return response.blob();
+}
+
 export function downloadURL(path: string) {
   return `/api/files/download?path=${encodeURIComponent(path)}`;
 }
 
 export function thumbnailURL(path: string, size: number) {
   return `/api/files/thumbnail?path=${encodeURIComponent(path)}&size=${size}`;
+}
+
+export function rawFileURL(path: string) {
+  return `/api/files/raw?path=${encodeURIComponent(path)}`;
 }
 
 export async function downloadBlob(path: string) {
@@ -223,19 +305,63 @@ export async function adminStats() {
   return api<AdminStats>("/api/admin/stats");
 }
 
+export async function listAdminUsers() {
+  return api<{ users: User[] }>("/api/admin/users");
+}
+
+export async function createAdminUser(input: {
+  username: string;
+  password: string;
+  home_root: string;
+  is_admin: boolean;
+  disabled: boolean;
+}) {
+  return api<{ user: User }>("/api/admin/users", {
+    method: "POST",
+    body: input
+  });
+}
+
+export async function updateAdminUser(id: number, input: Partial<Pick<User, "username" | "home_root" | "is_admin" | "disabled">>) {
+  return api<{ user: User }>(`/api/admin/users/${id}`, {
+    method: "PATCH",
+    body: input
+  });
+}
+
+export async function setAdminUserPassword(id: number, password: string) {
+  return api<{ status: string }>(`/api/admin/users/${id}/password`, {
+    method: "POST",
+    body: { password }
+  });
+}
+
 export async function currentAdminJob() {
   return api<{ job: AdminJob | null }>("/api/admin/jobs/current");
 }
 
-export async function startReindex() {
+export async function startReindex(input?: { username?: string; path?: string }) {
   return api<{ job: AdminJob }>("/api/admin/jobs/reindex", {
-    method: "POST"
+    method: "POST",
+    body: input || null
   });
 }
 
 export async function startPreviewWarmup() {
   return api<{ job: AdminJob }>("/api/admin/jobs/preview-warmup", {
     method: "POST"
+  });
+}
+
+export async function cancelAdminJob() {
+  return api<{ job: AdminJob }>("/api/admin/jobs/cancel", {
+    method: "POST"
+  });
+}
+
+export async function clearPreviewCache() {
+  return api<{ status: string }>("/api/admin/preview-cache", {
+    method: "DELETE"
   });
 }
 
@@ -258,12 +384,37 @@ export async function uploadTus(file: File, targetPath: string, onProgress?: (pr
   if (!location) {
     throw new Error("Upload endpoint did not return Location");
   }
+  transport.onUploadCreated?.(location);
+
   if (file.size === 0) {
     onProgress?.({ loaded: 0, total: 0, percent: 100 });
     return "";
   }
 
-  return uploadTusPatch(location, file, onProgress, transport.xhrFactory);
+  return uploadTusPatch(location, file, 0, onProgress, transport.xhrFactory);
+}
+
+export async function resumeUploadTus(tusUrl: string, file: File, onProgress?: (progress: UploadProgress) => void, transport: UploadTransport = {}) {
+  const doFetch = transport.fetch || fetch;
+  const headResponse = await doFetch(tusUrl, {
+    method: "HEAD",
+    headers: {
+      ...authHeaderObject(),
+      "Tus-Resumable": "1.0.0"
+    }
+  });
+
+  if (!headResponse.ok) {
+    throw new Error("upload_gone");
+  }
+
+  const startOffset = parseInt(headResponse.headers.get("Upload-Offset") || "0", 10);
+  if (startOffset >= file.size) {
+    onProgress?.({ loaded: file.size, total: file.size, percent: 100 });
+    return headResponse.headers.get("Upload-Final-Path") || "";
+  }
+
+  return uploadTusPatch(tusUrl, file, startOffset, onProgress, transport.xhrFactory);
 }
 
 export function saveBlob(blob: Blob, filename: string) {
@@ -299,6 +450,14 @@ function authHeaderObject(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+function readToken() {
+  return storage()?.getItem(TOKEN_KEY) || "";
+}
+
+function storage() {
+  return typeof localStorage === "undefined" ? null : localStorage;
+}
+
 async function errorMessage(response: Response) {
   try {
     const data = await response.json();
@@ -308,7 +467,7 @@ async function errorMessage(response: Response) {
   }
 }
 
-function uploadTusPatch(location: string, file: File, onProgress?: (progress: UploadProgress) => void, xhrFactory: () => XMLHttpRequest = () => new XMLHttpRequest()) {
+function uploadTusPatch(location: string, file: File, startOffset: number, onProgress?: (progress: UploadProgress) => void, xhrFactory: () => XMLHttpRequest = () => new XMLHttpRequest()) {
   return new Promise<string>((resolve, reject) => {
     const xhr = xhrFactory();
     xhr.open("PATCH", location);
@@ -317,11 +476,12 @@ function uploadTusPatch(location: string, file: File, onProgress?: (progress: Up
     }
     xhr.setRequestHeader("Tus-Resumable", "1.0.0");
     xhr.setRequestHeader("Content-Type", "application/offset+octet-stream");
-    xhr.setRequestHeader("Upload-Offset", "0");
+    xhr.setRequestHeader("Upload-Offset", String(startOffset));
 
     xhr.upload.onprogress = event => {
-      const total = event.lengthComputable ? event.total : file.size;
-      const loaded = event.loaded;
+      const chunkTotal = event.lengthComputable ? event.total : file.size - startOffset;
+      const loaded = event.loaded + startOffset;
+      const total = chunkTotal + startOffset;
       const percent = total > 0 ? Math.min(99, Math.round((loaded / total) * 100)) : 0;
       onProgress?.({ loaded, total, percent });
     };
@@ -336,7 +496,7 @@ function uploadTusPatch(location: string, file: File, onProgress?: (progress: Up
     };
     xhr.onerror = () => reject(new Error("Upload failed"));
     xhr.onabort = () => reject(new Error("Upload cancelled"));
-    xhr.send(file);
+    xhr.send(file.slice(startOffset));
   });
 }
 

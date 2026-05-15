@@ -32,7 +32,9 @@ func (s *Store) ListTrashItems(ctx context.Context, userID int64) ([]TrashItem, 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var items []TrashItem
 	for rows.Next() {

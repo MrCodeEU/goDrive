@@ -6,10 +6,12 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"sync"
 
 	"godrive/internal/config"
 	"godrive/internal/files"
 	"godrive/internal/store"
+	"godrive/internal/watch"
 )
 
 type Server struct {
@@ -18,16 +20,22 @@ type Server struct {
 	files      *files.Service
 	log        *slog.Logger
 	jobs       *AdminJobs
+	watcher    *watch.Watcher
+	loginLimit *loginLimiter
 	httpServer *http.Server
+	eventsMu   sync.Mutex
+	eventsSubs map[int64]map[chan WebhookEvent]struct{}
 }
 
 func New(cfg config.Config, st *store.Store, fileService *files.Service, log *slog.Logger) *Server {
 	server := &Server{
-		cfg:   cfg,
-		store: st,
-		files: fileService,
-		log:   log,
-		jobs:  NewAdminJobs(),
+		cfg:        cfg,
+		store:      st,
+		files:      fileService,
+		log:        log,
+		jobs:       NewAdminJobs(),
+		loginLimit: newLoginLimiter(),
+		eventsSubs: make(map[int64]map[chan WebhookEvent]struct{}),
 	}
 	server.httpServer = &http.Server{
 		Addr:    cfg.Addr,
@@ -40,6 +48,16 @@ func (s *Server) ListenAndServe() error {
 	return s.httpServer.ListenAndServe()
 }
 
+func (s *Server) SetWatcher(watcher *watch.Watcher) {
+	s.watcher = watcher
+	watcher.SetChangeHandler(func(event watch.ChangeEvent) {
+		s.fireEvent(event.User, event.Event, map[string]any{
+			"path": event.Path,
+			"type": event.Type,
+		})
+	})
+}
+
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 
@@ -50,6 +68,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/auth/login", s.login)
 	mux.HandleFunc("POST /api/auth/logout", s.withUser(s.logout))
 	mux.HandleFunc("GET /api/me", s.withUser(s.me))
+	mux.HandleFunc("GET /api/events", s.withUser(s.events))
 
 	mux.HandleFunc("GET /api/admin/users", s.withAdmin(s.listUsers))
 	mux.HandleFunc("POST /api/admin/users", s.withAdmin(s.createUser))
@@ -57,12 +76,22 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/admin/users/{id}/password", s.withAdmin(s.setPassword))
 	mux.HandleFunc("GET /api/admin/stats", s.withAdmin(s.adminStats))
 	mux.HandleFunc("GET /api/admin/jobs/current", s.withAdmin(s.currentAdminJob))
+	mux.HandleFunc("POST /api/admin/jobs/cancel", s.withAdmin(s.cancelAdminJob))
 	mux.HandleFunc("POST /api/admin/jobs/reindex", s.withAdmin(s.startReindex))
 	mux.HandleFunc("POST /api/admin/jobs/preview-warmup", s.withAdmin(s.startPreviewWarmup))
+	mux.HandleFunc("DELETE /api/admin/preview-cache", s.withAdmin(s.clearPreviewCache))
+
+	mux.HandleFunc("GET /api/webhooks", s.withAdmin(s.listWebhooks))
+	mux.HandleFunc("POST /api/webhooks", s.withAdmin(s.createWebhook))
+	mux.HandleFunc("DELETE /api/webhooks/{id}", s.withAdmin(s.deleteWebhook))
+	mux.HandleFunc("POST /api/webhooks/{id}/test", s.withAdmin(s.testWebhook))
 
 	mux.HandleFunc("GET /api/files/list", s.withUser(s.listFiles))
+	mux.HandleFunc("GET /api/files/tree", s.withUser(s.fileTree))
+	mux.HandleFunc("GET /api/files/search", s.withUser(s.searchFiles))
 	mux.HandleFunc("POST /api/files/mkdir", s.withUser(s.mkdir))
 	mux.HandleFunc("GET /api/files/download", s.withUser(s.download))
+	mux.HandleFunc("GET /api/files/raw", s.withUser(s.rawFile))
 	mux.HandleFunc("GET /api/files/text", s.withUser(s.textPreview))
 	mux.HandleFunc("GET /api/files/thumbnail", s.withUser(s.thumbnail))
 	mux.HandleFunc("POST /api/files/move", s.withUser(s.move))
@@ -108,7 +137,9 @@ func writeError(w http.ResponseWriter, status int, message string) {
 }
 
 func decodeJSON(r *http.Request, target any) error {
-	defer r.Body.Close()
+	defer func() {
+		_ = r.Body.Close()
+	}()
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	return decoder.Decode(target)

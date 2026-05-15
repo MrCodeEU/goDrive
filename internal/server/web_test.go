@@ -2,6 +2,7 @@ package server
 
 import (
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -17,31 +18,50 @@ func TestWebRootAndAssets(t *testing.T) {
 	srv := New(config.Config{}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	handler := srv.routes()
 
-	tests := []struct {
-		name       string
-		path       string
-		statusCode int
-		contains   string
-	}{
-		{name: "root", path: "/", statusCode: http.StatusOK, contains: "goDrive"},
-		{name: "asset", path: "/assets/app.js", statusCode: http.StatusOK, contains: "use strict"},
-		{name: "missing", path: "/missing", statusCode: http.StatusNotFound},
-	}
+	t.Run("root", func(t *testing.T) {
+		t.Parallel()
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rec.Code)
+		}
+		if !strings.Contains(rec.Body.String(), "goDrive") {
+			t.Fatal("index.html does not contain 'goDrive'")
+		}
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
-			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
-
-			if rec.Code != tt.statusCode {
-				t.Fatalf("status = %d, want %d", rec.Code, tt.statusCode)
+	t.Run("asset", func(t *testing.T) {
+		t.Parallel()
+		// Find actual asset filename (vite uses content hashes).
+		assetPath := ""
+		_ = fs.WalkDir(webAssets, "static/assets", func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
 			}
-			if tt.contains != "" && !strings.Contains(rec.Body.String(), tt.contains) {
-				t.Fatalf("body does not contain %q", tt.contains)
+			if strings.HasSuffix(path, ".js") && assetPath == "" {
+				assetPath = "/assets/" + strings.TrimPrefix(path, "static/assets/")
 			}
+			return nil
 		})
-	}
+		if assetPath == "" {
+			t.Skip("no bundled JS asset found")
+		}
+		req := httptest.NewRequest(http.MethodGet, assetPath, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("asset %s status = %d, want 200", assetPath, rec.Code)
+		}
+	})
+
+	t.Run("missing", func(t *testing.T) {
+		t.Parallel()
+		req := httptest.NewRequest(http.MethodGet, "/missing", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want 404", rec.Code)
+		}
+	})
 }

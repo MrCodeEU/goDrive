@@ -1,0 +1,22 @@
+services:
+  godrive:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      # User files — back this up.
+      - /mnt/user/godrive/data:/data
+      # Durable app state (DB, trash, config) — back this up.
+      - /mnt/user/godrive/appdata:/appdata
+    environment:
+      GODRIVE_BOOTSTRAP_ADMIN_USER: admin
+      # Set on first boot only. Change via admin UI afterward.
+      GODRIVE_BOOTSTRAP_ADMIN_PASSWORD: ${GODRIVE_BOOTSTRAP_ADMIN_PASSWORD}
+      GODRIVE_BOOTSTRAP_ADMIN_ROOT: /data/admin
+      GODRIVE_COOKIE_SECURE: "true"
+      GODRIVE_SESSION_TTL: 720h
+      GODRIVE_RECONCILE_INTERVAL: 24h
+      GODRIVE_PREVIEW_WORKERS: "0"
