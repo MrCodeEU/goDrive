@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -244,6 +245,11 @@ func TestInodeCachePathDifferentAfterCopy(t *testing.T) {
 
 func TestGenerateThumbnailsAsyncCreatesAllSizes(t *testing.T) {
 	t.Parallel()
+	if _, err := exec.LookPath("vipsthumbnail"); err != nil {
+		if _, err := exec.LookPath("ffmpeg"); err != nil {
+			t.Skip("no preview tools available (vipsthumbnail or ffmpeg required)")
+		}
+	}
 
 	dir := t.TempDir()
 	previewDir := t.TempDir()
