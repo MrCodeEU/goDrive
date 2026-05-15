@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -49,6 +50,9 @@ class _FilesScreenState extends State<FilesScreen> {
   bool _searching = false;
   bool _gridView = false;
   StreamSubscription? _sharingSubscription;
+  final Set<String> _selectedPaths = {};
+  final _scrollCtrl = ScrollController();
+  bool _fabVisible = true;
 
   @override
   void initState() {
@@ -56,6 +60,14 @@ class _FilesScreenState extends State<FilesScreen> {
     _currentPath = widget.path;
     _load(_currentPath);
     _initSharing();
+    _scrollCtrl.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    final visible =
+        _scrollCtrl.position.userScrollDirection == ScrollDirection.forward ||
+            _scrollCtrl.offset < 10;
+    if (visible != _fabVisible) setState(() => _fabVisible = visible);
   }
 
   ApiClient get _client => context.read<AuthState>().client!;
@@ -313,6 +325,18 @@ class _FilesScreenState extends State<FilesScreen> {
     }
   }
 
+  Future<void> _deleteEntry(FileEntry entry) async {
+    try {
+      await _client.deleteFile(entry.path);
+      if (mounted) {
+        setState(() => _selectedPaths.remove(entry.path));
+        await _load(_currentPath);
+      }
+    } catch (e) {
+      if (mounted) _showSnack('Delete failed: $e');
+    }
+  }
+
   Future<void> _delete(FileEntry entry) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -330,11 +354,64 @@ class _FilesScreenState extends State<FilesScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    try {
-      await _client.deleteFile(entry.path);
+    await _deleteEntry(entry);
+  }
+
+  Future<void> _deleteSelected() async {
+    final paths = List<String>.from(_selectedPaths);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Move to Trash'),
+        content: Text('Move ${paths.length} item(s) to trash?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    for (final path in paths) {
+      try {
+        await _client.deleteFile(path);
+      } catch (_) {}
+    }
+    if (mounted) {
+      setState(() => _selectedPaths.clear());
       await _load(_currentPath);
-    } catch (e) {
-      if (mounted) _showSnack('Delete failed: $e');
+    }
+  }
+
+  Future<void> _downloadSelected() async {
+    for (final path in _selectedPaths) {
+      final entry = _entries.firstWhere((e) => e.path == path,
+          orElse: () => _entries.first);
+      await launchUrl(Uri.parse(_client.downloadUrl(entry.path)),
+          mode: LaunchMode.externalApplication);
+    }
+  }
+
+  Future<void> _moveSelected() async {
+    final targetPath =
+        await Navigator.of(context).push<String>(MaterialPageRoute(
+      builder: (_) =>
+          _FolderPickerScreen(client: _client, initialPath: _currentPath),
+    ));
+    if (targetPath == null || !mounted) return;
+    final paths = List<String>.from(_selectedPaths);
+    for (final path in paths) {
+      try {
+        final name = path.split('/').last;
+        await _client.move(path, '$targetPath/$name');
+      } catch (_) {}
+    }
+    if (mounted) {
+      setState(() => _selectedPaths.clear());
+      await _load(_currentPath);
     }
   }
 
@@ -615,75 +692,100 @@ class _FilesScreenState extends State<FilesScreen> {
         if (!didPop) _pop();
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: _searching
-              ? TextField(
-                  controller: _searchCtrl,
-                  autofocus: true,
-                  decoration: const InputDecoration(
-                      hintText: 'Search files…', border: InputBorder.none),
-                  onSubmitted: _search,
-                )
-              : const Text('goDrive'),
-          actions: [
-            if (!_searching) ...[
-              IconButton(
-                icon: Icon(_gridView ? Icons.view_list : Icons.grid_view),
-                tooltip: _gridView ? 'List view' : 'Grid view',
-                onPressed: () => setState(() => _gridView = !_gridView),
-              ),
-              IconButton(
-                  icon: const Icon(Icons.search),
-                  onPressed: () => setState(() => _searching = true)),
-            ],
-            if (_searching)
-              IconButton(
+        appBar: _selectedPaths.isNotEmpty
+            ? AppBar(
+                leading: IconButton(
                   icon: const Icon(Icons.close),
-                  onPressed: () {
-                    _searchCtrl.clear();
-                    setState(() => _searching = false);
-                    _load(_currentPath);
-                  }),
-            if (queue.hasActive)
-              Stack(
-                alignment: Alignment.center,
-                children: [
+                  onPressed: () => setState(() => _selectedPaths.clear()),
+                ),
+                title: Text('${_selectedPaths.length} selected'),
+                actions: [
                   IconButton(
-                      icon: const Icon(Icons.upload_outlined),
-                      onPressed: () => UploadQueueSheet.show(context)),
-                  Positioned(
-                      top: 8,
-                      right: 8,
-                      child: Container(
-                        width: 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.primary,
-                            shape: BoxShape.circle),
-                      )),
+                      icon: const Icon(Icons.download_outlined),
+                      onPressed: _downloadSelected,
+                      tooltip: 'Download'),
+                  IconButton(
+                      icon: const Icon(Icons.drive_file_move_outline),
+                      onPressed: _moveSelected,
+                      tooltip: 'Move'),
+                  IconButton(
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: _deleteSelected,
+                      tooltip: 'Move to trash'),
                 ],
               )
-            else
-              IconButton(
-                  icon: const Icon(Icons.upload_outlined),
-                  onPressed: () => UploadQueueSheet.show(context)),
-            PopupMenuButton<String>(
-              onSelected: (v) async {
-                if (v == 'trash') _showTrash();
-                if (v == 'admin') _showAdmin();
-                if (v == 'logout') context.read<AuthState>().logout();
-              },
-              itemBuilder: (_) => [
-                const PopupMenuItem(value: 'trash', child: Text('Trash')),
-                if (user?.isAdmin == true)
-                  const PopupMenuItem(value: 'admin', child: Text('Admin')),
-                PopupMenuItem(
-                    value: 'logout',
-                    child: Text('Sign out (${user?.username ?? ''})')),
-              ],
-            ),
-          ],
-        ),
+            : AppBar(
+                title: _searching
+                    ? TextField(
+                        controller: _searchCtrl,
+                        autofocus: true,
+                        decoration: const InputDecoration(
+                            hintText: 'Search files…',
+                            border: InputBorder.none),
+                        onSubmitted: _search,
+                      )
+                    : const Text('goDrive'),
+                actions: [
+                  if (!_searching) ...[
+                    IconButton(
+                      icon:
+                          Icon(_gridView ? Icons.view_list : Icons.grid_view),
+                      tooltip: _gridView ? 'List view' : 'Grid view',
+                      onPressed: () => setState(() => _gridView = !_gridView),
+                    ),
+                    IconButton(
+                        icon: const Icon(Icons.search),
+                        onPressed: () => setState(() => _searching = true)),
+                  ],
+                  if (_searching)
+                    IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () {
+                          _searchCtrl.clear();
+                          setState(() => _searching = false);
+                          _load(_currentPath);
+                        }),
+                  if (queue.hasActive)
+                    Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        IconButton(
+                            icon: const Icon(Icons.upload_outlined),
+                            onPressed: () => UploadQueueSheet.show(context)),
+                        Positioned(
+                            top: 8,
+                            right: 8,
+                            child: Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                  color: Theme.of(context).colorScheme.primary,
+                                  shape: BoxShape.circle),
+                            )),
+                      ],
+                    )
+                  else
+                    IconButton(
+                        icon: const Icon(Icons.upload_outlined),
+                        onPressed: () => UploadQueueSheet.show(context)),
+                  PopupMenuButton<String>(
+                    onSelected: (v) async {
+                      if (v == 'trash') _showTrash();
+                      if (v == 'admin') _showAdmin();
+                      if (v == 'logout') context.read<AuthState>().logout();
+                    },
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(value: 'trash', child: Text('Trash')),
+                      if (user?.isAdmin == true)
+                        const PopupMenuItem(
+                            value: 'admin', child: Text('Admin')),
+                      PopupMenuItem(
+                          value: 'logout',
+                          child: Text('Sign out (${user?.username ?? ''})')),
+                    ],
+                  ),
+                ],
+              ),
         body: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -706,23 +808,27 @@ class _FilesScreenState extends State<FilesScreen> {
             Expanded(child: _body()),
           ],
         ),
-        floatingActionButton: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            FloatingActionButton.small(
-              heroTag: 'folder',
-              onPressed: _createFolder,
-              tooltip: 'New folder',
-              child: const Icon(Icons.create_new_folder_outlined),
-            ),
-            const SizedBox(height: 8),
-            FloatingActionButton(
-              heroTag: 'upload',
-              onPressed: _pickAndUpload,
-              tooltip: 'Upload files',
-              child: const Icon(Icons.upload_file),
-            ),
-          ],
+        floatingActionButton: AnimatedScale(
+          scale: _fabVisible ? 1.0 : 0.0,
+          duration: const Duration(milliseconds: 200),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              FloatingActionButton.small(
+                heroTag: 'folder',
+                onPressed: _createFolder,
+                tooltip: 'New folder',
+                child: const Icon(Icons.create_new_folder_outlined),
+              ),
+              const SizedBox(height: 8),
+              FloatingActionButton(
+                heroTag: 'upload',
+                onPressed: _pickAndUpload,
+                tooltip: 'Upload files',
+                child: const Icon(Icons.upload_file),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -748,23 +854,98 @@ class _FilesScreenState extends State<FilesScreen> {
         ),
       );
     }
-    if (_entries.isEmpty) return const Center(child: Text('Empty folder'));
+    if (_entries.isEmpty && !_loading) {
+      return RefreshIndicator(
+        onRefresh: () => _load(_currentPath),
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: SizedBox(
+            height: MediaQuery.of(context).size.height * 0.6,
+            child: const _EmptyFolderState(),
+          ),
+        ),
+      );
+    }
     if (_gridView) return _gridBody();
     return RefreshIndicator(
-      onRefresh: () => _load(_currentPath),
+      onRefresh: () async {
+        await _load(_currentPath);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Folder refreshed'),
+              duration: Duration(seconds: 1),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      },
       child: ListView.separated(
+        controller: _scrollCtrl,
         itemCount: _entries.length,
         separatorBuilder: (_, __) => const Divider(height: 1, indent: 68),
         itemBuilder: (context, i) {
           final entry = _entries[i];
-          return FileTile(
+          final isSelected = _selectedPaths.contains(entry.path);
+          final inSelectionMode = _selectedPaths.isNotEmpty;
+          final tile = FileTile(
             entry: entry,
             thumbnailUrl: _supportsThumbnail(entry)
                 ? _client.thumbnailUrl(entry.path, 96)
                 : '',
             authHeaders: _client.authHeader,
-            onTap: () => entry.isDir ? _navigate(entry.path) : _openFile(entry),
-            onLongPress: () => _showFileActions(entry),
+            onTap: () {
+              if (inSelectionMode) {
+                setState(() {
+                  if (isSelected) {
+                    _selectedPaths.remove(entry.path);
+                  } else {
+                    _selectedPaths.add(entry.path);
+                  }
+                });
+              } else {
+                entry.isDir ? _navigate(entry.path) : _openFile(entry);
+              }
+            },
+            onLongPress: () {
+              setState(() => _selectedPaths.add(entry.path));
+            },
+            isSelected: isSelected,
+            inSelectionMode: inSelectionMode,
+          );
+          if (inSelectionMode) return tile;
+          return Dismissible(
+            key: ValueKey(entry.path),
+            direction: DismissDirection.endToStart,
+            background: Container(
+              alignment: Alignment.centerRight,
+              padding: const EdgeInsets.only(right: 20),
+              color: Theme.of(context).colorScheme.errorContainer,
+              child: Icon(Icons.delete_outline,
+                  color: Theme.of(context).colorScheme.onErrorContainer),
+            ),
+            confirmDismiss: (_) async {
+              return await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('Move to trash?'),
+                      content: Text('Move "${entry.name}" to trash?'),
+                      actions: [
+                        TextButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: const Text('Cancel')),
+                        FilledButton(
+                            onPressed: () => Navigator.pop(ctx, true),
+                            child: const Text('Trash')),
+                      ],
+                    ),
+                  ) ??
+                  false;
+            },
+            onDismissed: (_) {
+              _deleteEntry(entry);
+            },
+            child: tile,
           );
         },
       ),
@@ -773,7 +954,18 @@ class _FilesScreenState extends State<FilesScreen> {
 
   Widget _gridBody() {
     return RefreshIndicator(
-      onRefresh: () => _load(_currentPath),
+      onRefresh: () async {
+        await _load(_currentPath);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Folder refreshed'),
+              duration: Duration(seconds: 1),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      },
       child: GridView.builder(
         padding: const EdgeInsets.all(2),
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -811,6 +1003,7 @@ class _FilesScreenState extends State<FilesScreen> {
   void dispose() {
     _sharingSubscription?.cancel();
     _searchCtrl.dispose();
+    _scrollCtrl.dispose();
     super.dispose();
   }
 }
@@ -1101,6 +1294,30 @@ class _FolderPickerTile extends StatelessWidget {
           depth > 0 ? Text(path, style: const TextStyle(fontSize: 11)) : null,
       selected: isSelected,
       onTap: onTap,
+    );
+  }
+}
+
+class _EmptyFolderState extends StatelessWidget {
+  const _EmptyFolderState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(Icons.folder_open_outlined,
+            size: 64, color: Theme.of(context).colorScheme.outline),
+        const SizedBox(height: 16),
+        Text('This folder is empty',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant)),
+        const SizedBox(height: 8),
+        Text('Upload files or create a folder to get started.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.outline),
+            textAlign: TextAlign.center),
+      ],
     );
   }
 }

@@ -8,6 +8,8 @@ class FileTile extends StatelessWidget {
   final Map<String, String> authHeaders;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
+  final bool isSelected;
+  final bool inSelectionMode;
 
   const FileTile({
     super.key,
@@ -16,12 +18,19 @@ class FileTile extends StatelessWidget {
     required this.authHeaders,
     required this.onTap,
     required this.onLongPress,
+    this.isSelected = false,
+    this.inSelectionMode = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      leading: _leading(context),
+      leading: inSelectionMode
+          ? Checkbox(
+              value: isSelected,
+              onChanged: (_) => onTap(),
+            )
+          : _leading(context),
       title: Text(entry.name, overflow: TextOverflow.ellipsis),
       subtitle: Text(
         entry.isDir
@@ -29,7 +38,10 @@ class FileTile extends StatelessWidget {
             : '${_formatBytes(entry.size)} · ${_formatDate(entry.modifiedAt)}',
         style: Theme.of(context).textTheme.bodySmall,
       ),
-      trailing: entry.isDir ? const Icon(Icons.chevron_right) : null,
+      trailing: inSelectionMode
+          ? null
+          : (entry.isDir ? const Icon(Icons.chevron_right) : null),
+      selected: isSelected,
       onTap: onTap,
       onLongPress: onLongPress,
     );

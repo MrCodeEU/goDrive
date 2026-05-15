@@ -22,6 +22,7 @@
     search: '<path d="m21 21-4.3-4.3"/><circle cx="11" cy="11" r="8"/>',
     sort: '<path d="m7 15 5 5 5-5"/><path d="M12 4v16"/>',
     trash: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>',
+    keyboard: '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"/>',
     upload: '<path d="M12 21V9"/><path d="m7 14 5-5 5 5"/><path d="M5 3h14"/>'
   };
 </script>

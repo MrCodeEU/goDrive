@@ -107,6 +107,8 @@
   let searchQuery = "";
   let searchResults: FileEntry[] = [];
   let searchOpen = false;
+  let shortcutsOpen = false;
+  let searchDebounce: ReturnType<typeof setTimeout> | null = null;
   let uploadInput: HTMLInputElement | null = null;
   let uploadQueue: UploadQueueItem[] = loadQueueFromStorage();
   let uploadQueueCollapsed = uploadQueue.length === 0;
@@ -831,8 +833,12 @@
     } else if ((event.ctrlKey || event.metaKey) && event.shiftKey && key === "n") {
       event.preventDefault();
       void createFolder();
+    } else if (event.key === '?' && !shouldIgnoreShortcut(event.target)) {
+      event.preventDefault();
+      shortcutsOpen = !shortcutsOpen;
     } else if (event.key === "Escape") {
-      if (actionDialog) actionDialog = null;
+      if (shortcutsOpen) shortcutsOpen = false;
+      else if (actionDialog) actionDialog = null;
       else if (viewerFile) closeViewer();
       else if (trashOpen) {
         trashSelectedIds = [];
@@ -1147,6 +1153,16 @@
     });
   }
 
+  function onSearchInput() {
+    if (searchDebounce) clearTimeout(searchDebounce);
+    if (!searchQuery.trim()) {
+      searchOpen = false;
+      searchResults = [];
+      return;
+    }
+    searchDebounce = setTimeout(() => void submitSearch(), 300);
+  }
+
   function breadcrumbs() {
     const parts = currentPath.split("/").filter(Boolean);
     const rows = [{ name: "My files", path: "/" }];
@@ -1294,12 +1310,13 @@
     <section class="workspace">
       <header class="topbar">
         <form class="search" on:submit|preventDefault={submitSearch}>
-          <input bind:value={searchQuery} placeholder="Search files" />
+          <input bind:value={searchQuery} placeholder="Search files" on:input={onSearchInput} />
           <button type="submit"><Icon name="search" />Search</button>
         </form>
         <div class="topbar-actions">
           {#if busy}<span class="busy">{busy}</span>{/if}
           <button type="button" on:click={refreshCurrentFolder}><Icon name="refresh" />Refresh</button>
+          <button type="button" title="Keyboard shortcuts (?)" on:click={() => (shortcutsOpen = true)}><Icon name="keyboard" />?</button>
           {#if user.is_admin}<button type="button" on:click={openAdmin}><Icon name="admin" />Admin</button>{/if}
           <button type="button" on:click={openTrash}><Icon name="trash" />Trash</button>
           <button type="button" on:click={submitLogout}><Icon name="logout" />Logout</button>
@@ -1320,6 +1337,13 @@
           <button class:active={viewMode === "list"} type="button" title="List view" aria-label="List view" on:click={() => (viewMode = "list")}><Icon name="list" /></button>
         </div>
       </div>
+
+      {#if entries.length > 0}
+        <div class="folder-stats">
+          {entries.length}{folderHasMore ? '+' : ''} item{entries.length !== 1 ? 's' : ''}
+          {#if selectedIds.length > 0} · {selectedIds.length} selected{/if}
+        </div>
+      {/if}
 
       <div class="commandbar">
         <button type="button" on:click={createFolder}><Icon name="plus" />New folder</button>
@@ -1364,6 +1388,22 @@
             ← Back to parent folder
           </button>
         {/if}
+
+        {#if busy === "Loading folder" && entries.length === 0}
+          <div class="grid">
+            {#each Array(12) as _, i}
+              <div class="file-card skeleton-card" style="animation-delay: {i * 40}ms"></div>
+            {/each}
+          </div>
+        {/if}
+
+        {#if visibleEntries.length === 0 && !busy}
+          <div class="empty-state">
+            <div class="empty-icon">📁</div>
+            <p class="empty-title">This folder is empty</p>
+            <p class="empty-sub">Drop files here or use the Upload button to add files.</p>
+          </div>
+        {:else}
 
         {#if viewMode === "grid"}
           <div class="grid">
@@ -1427,6 +1467,7 @@
 
         {#if folderHasMore}
           <button type="button" class="load-more" on:click={loadMoreFolder}>Load more ({folderOffset}/{folderTotal})</button>
+        {/if}
         {/if}
       </section>
     </section>
@@ -1663,6 +1704,35 @@
           <button type="button" on:click={clearCompletedUploads}>Clear completed</button>
         {/if}
       </aside>
+    {/if}
+
+    {#if shortcutsOpen}
+      <div class="modal-backdrop" role="presentation" tabindex="-1"
+        on:click={(event) => event.target === event.currentTarget && (shortcutsOpen = false)}
+        on:keydown={(event) => event.key === 'Escape' && (shortcutsOpen = false)}>
+        <section class="modal-panel shortcuts-panel">
+          <header><h2>Keyboard Shortcuts</h2><button type="button" on:click={() => (shortcutsOpen = false)}>×</button></header>
+          <div class="shortcuts-list">
+            {#each [
+              ['?', 'Show this help'],
+              ['Ctrl+A', 'Select all'],
+              ['Delete', 'Move to trash'],
+              ['F2', 'Rename selected'],
+              ['Enter', 'Open selected'],
+              ['Escape', 'Clear selection / close'],
+              ['Ctrl+Shift+N', 'New folder'],
+              ['Arrow keys', 'Navigate files'],
+              ['Shift+Arrow', 'Extend selection'],
+              ['Ctrl+Arrow', 'Add to selection'],
+            ] as [key, desc]}
+              <div class="shortcut-row">
+                <kbd>{key}</kbd>
+                <span>{desc}</span>
+              </div>
+            {/each}
+          </div>
+        </section>
+      </div>
     {/if}
   </main>
 {/if}
