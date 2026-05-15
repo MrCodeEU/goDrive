@@ -167,15 +167,15 @@ ios-push:
 ios-deploy: ios-push
 	@set -e; \
 	echo "→ Triggering iOS build on branch $(IOS_BRANCH)..."; \
-	gh workflow run ios.yml --ref $(IOS_BRANCH); \
-	echo "→ Waiting for run to register..."; \
-	RUN_ID=""; \
-	for i in $$(seq 1 15); do \
+	GH_OUT=$$(gh workflow run ios.yml --ref $(IOS_BRANCH) 2>&1); echo "$$GH_OUT"; \
+	RUN_ID=$$(echo "$$GH_OUT" | grep -oE 'runs/[0-9]+' | grep -oE '[0-9]+' | head -1); \
+	if [ -z "$$RUN_ID" ]; then \
+		echo "→ Waiting for run to register..."; \
+		sleep 6; \
 		RUN_ID=$$(gh run list --workflow=ios.yml --branch=$(IOS_BRANCH) \
-			--limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null); \
-		[ -n "$$RUN_ID" ] && [ "$$RUN_ID" != "null" ] && break; \
-		sleep 3; \
-	done; \
+			--limit 5 --json databaseId,status \
+			-q '.[] | select(.status != "completed") | .databaseId' 2>/dev/null | head -1); \
+	fi; \
 	[ -z "$$RUN_ID" ] && echo "ERROR: could not get run ID" && exit 1; \
 	echo "→ Watching run $$RUN_ID (typically 8-12 min)..."; \
 	gh run watch $$RUN_ID --exit-status; \
