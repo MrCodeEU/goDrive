@@ -407,6 +407,7 @@ class _FilesScreenState extends State<FilesScreen> {
     List<FileEntry> folders = [];
     String selected = _currentPath;
     bool loading = true;
+    bool started = false;
 
     return showModalBottomSheet<String>(
       context: context,
@@ -414,15 +415,12 @@ class _FilesScreenState extends State<FilesScreen> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setState) {
-            if (loading) {
-              // Load folders async, then rebuild
+            if (!started) {
+              started = true;
               _client.listFileTree().then((resp) {
                 if (ctx.mounted) {
                   setState(() {
-                    folders = resp
-                        .where((e) => e.type == 'dir')
-                        .toList()
-                      ..sort((a, b) => a.path.compareTo(b.path));
+                    folders = resp.toList()..sort((a, b) => a.path.compareTo(b.path));
                     loading = false;
                   });
                 }
@@ -437,7 +435,6 @@ class _FilesScreenState extends State<FilesScreen> {
               maxChildSize: 0.9,
               builder: (_, scroll) => Column(
                 children: [
-                  // Handle
                   Container(
                     margin: const EdgeInsets.symmetric(vertical: 8),
                     width: 36,
@@ -465,7 +462,6 @@ class _FilesScreenState extends State<FilesScreen> {
                         : ListView(
                             controller: scroll,
                             children: [
-                              // Root entry
                               _FolderPickerTile(
                                 path: '/',
                                 isSelected: selected == '/',
@@ -1083,12 +1079,9 @@ class _FolderPickerTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final depth = path == '/'
-        ? 0
-        : path.split('/').where((s) => s.isNotEmpty).length - 1;
-    final name = path == '/'
-        ? 'My files'
-        : path.split('/').where((s) => s.isNotEmpty).last;
+    final parts = path == '/' ? <String>[] : path.split('/').where((s) => s.isNotEmpty).toList();
+    final depth = parts.isNotEmpty ? parts.length - 1 : 0;
+    final name = parts.isEmpty ? 'My files' : parts.last;
     return ListTile(
       dense: true,
       contentPadding: EdgeInsets.only(left: 16.0 + depth * 12, right: 16),

@@ -5,7 +5,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"sync"
 )
 
 const MaxIndexedTextBytes = 512 * 1024
@@ -18,9 +20,13 @@ func SupportsTextIndex(previewKind string) bool {
 	return false
 }
 
+// lookupPDFToText resolves the pdftotext binary path once per process lifetime.
+var lookupPDFToText = sync.OnceValues(func() (string, error) {
+	return exec.LookPath("pdftotext")
+})
+
 func ReadTextForIndex(physical string) (string, error) {
-	ext := strings.ToLower(physical)
-	if strings.HasSuffix(ext, ".pdf") {
+	if strings.EqualFold(filepath.Ext(physical), ".pdf") {
 		if content, err := extractPDFText(physical); err == nil && content != "" {
 			return content, nil
 		}
@@ -29,9 +35,9 @@ func ReadTextForIndex(physical string) (string, error) {
 }
 
 func extractPDFText(physical string) (string, error) {
-	path, err := exec.LookPath("pdftotext")
+	path, err := lookupPDFToText()
 	if err != nil {
-		return "", err // pdftotext not installed — skip silently
+		return "", err
 	}
 	var buf bytes.Buffer
 	cmd := exec.Command(path, "-l", "20", physical, "-") // first 20 pages → stdout
