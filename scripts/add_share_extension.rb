@@ -23,9 +23,9 @@ raise 'Runner target not found' unless runner_target
 
 # --- File references ---
 ext_group = project.main_group.new_group(EXTENSION_NAME, 'ShareExtension')
-swift_ref = ext_group.new_file('ShareExtension/ShareViewController.swift')
-ext_group.new_file('ShareExtension/Info.plist')
-ext_group.new_file('ShareExtension/ShareExtension.entitlements')
+swift_ref = ext_group.new_file('ShareViewController.swift')
+ext_group.new_file('Info.plist')
+ext_group.new_file('ShareExtension.entitlements')
 
 # --- Extension target ---
 ext_target = project.new_target(
