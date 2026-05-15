@@ -24,6 +24,11 @@ jobs:
           key: pub-${{ hashFiles('mobile/pubspec.lock') }}
           restore-keys: pub-
 
+      - name: Add Share Extension target
+        run: |
+          gem install xcodeproj --no-document
+          ruby scripts/add_share_extension.rb
+
       - name: Build iOS (unsigned)
         working-directory: mobile
         run: |

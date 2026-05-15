@@ -477,13 +477,8 @@ class _FilesScreenState extends State<FilesScreen> {
         final photo = await picker.pickImage(source: ImageSource.camera);
         if (photo != null) files = [File(photo.path)];
       } else {
-        final images = await picker.pickMultiImage();
-        files = images.map((x) => File(x.path)).toList();
-        // Also allow picking videos from gallery.
-        if (files.isEmpty) {
-          final video = await picker.pickVideo(source: ImageSource.gallery);
-          if (video != null) files = [File(video.path)];
-        }
+        final media = await picker.pickMultipleMedia();
+        files = media.map((x) => File(x.path)).toList();
       }
     }
 
