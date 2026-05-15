@@ -1,6 +1,9 @@
 #!/usr/bin/env ruby
 # Adds the ShareExtension target to the Xcode project.
-# Runs on the macOS CI runner before flutter build ios.
+# Does NOT add an embed phase to Runner — that causes a build cycle with
+# Flutter's Thin Binary script. Instead, the CI workflow builds the extension
+# separately with xcodebuild and embeds it into Runner.app before packaging.
+#
 # Usage: ruby scripts/add_share_extension.rb
 
 require 'xcodeproj'
@@ -12,7 +15,6 @@ IOS_TARGET     = '16.0'
 
 project = Xcodeproj::Project.open(PROJECT_PATH)
 
-# Idempotent — skip if already added.
 if project.targets.any? { |t| t.name == EXTENSION_NAME }
   puts "#{EXTENSION_NAME} target already exists, skipping."
   exit 0
@@ -33,13 +35,10 @@ ext_target = project.new_target(
   project.products_group
 )
 
-# Fix product reference name — xcodeproj sometimes leaves it blank,
-# causing "Multiple commands produce .appex" from Xcode.
 product_ref = ext_target.product_reference
 product_ref.name = "#{EXTENSION_NAME}.appex"
 product_ref.path = "#{EXTENSION_NAME}.appex"
 
-# Build settings for both Debug and Release.
 ext_target.build_configurations.each do |cfg|
   s = cfg.build_settings
   s['PRODUCT_NAME']                = EXTENSION_NAME
@@ -55,25 +54,16 @@ ext_target.build_configurations.each do |cfg|
   s['CODE_SIGN_STYLE']             = 'Automatic'
 end
 
-# Compile the Swift source.
 ext_target.source_build_phase.add_file_reference(swift_ref)
 
-# --- App Group entitlements on Runner ---
+# Add Runner.entitlements (App Group) to Runner build settings only.
 runner_target.build_configurations.each do |cfg|
   cfg.build_settings['CODE_SIGN_ENTITLEMENTS'] = 'Runner/Runner.entitlements'
 end
 
-# --- Embed the extension inside Runner.app ---
-embed_phase = runner_target.copy_files_build_phases.find do |p|
-  p.dst_subfolder_spec == '13'
-end
-unless embed_phase
-  embed_phase = runner_target.new_copy_files_build_phase('Embed Foundation Extensions')
-  embed_phase.dst_subfolder_spec = '13'
-end
-
-build_file = embed_phase.add_file_reference(product_ref)
-build_file.settings = { 'ATTRIBUTES' => ['RemoveHeadersOnCopy'] }
+# Add target dependency so xcodebuild knows to build extension before Runner,
+# but do NOT add a Copy Files (embed) phase — that causes a Thin Binary cycle.
+runner_target.add_dependency(ext_target)
 
 project.save
-puts "#{EXTENSION_NAME} target added successfully."
+puts "#{EXTENSION_NAME} target added successfully (embed handled separately in CI)."

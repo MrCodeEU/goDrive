@@ -29,14 +29,38 @@ jobs:
           gem install xcodeproj --no-document
           ruby scripts/add_share_extension.rb
 
-      - name: Build iOS (unsigned)
+      - name: Build iOS app (unsigned)
         working-directory: mobile
         run: |
           flutter pub get
           flutter build ios --release --no-codesign
 
-      - name: Package IPA
+      - name: Build Share Extension (unsigned)
+        working-directory: mobile/ios
         run: |
+          xcodebuild \
+            -project Runner.xcodeproj \
+            -target ShareExtension \
+            -configuration Release \
+            -sdk iphoneos \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CONFIGURATION_BUILD_DIR="$GITHUB_WORKSPACE/mobile/build/ios/iphoneos" \
+            build
+
+      - name: Embed extension and package IPA
+        run: |
+          APP="mobile/build/ios/iphoneos/Runner.app"
+          EXT="mobile/build/ios/iphoneos/ShareExtension.appex"
+          PLUGINS="$APP/PlugIns"
+          mkdir -p "$PLUGINS"
+          if [ -d "$EXT" ]; then
+            cp -r "$EXT" "$PLUGINS/"
+            echo "✓ ShareExtension.appex embedded"
+          else
+            echo "⚠ ShareExtension.appex not found — skipping embed"
+          fi
           cd mobile/build/ios/iphoneos
           mkdir -p Payload
           cp -r Runner.app Payload/
