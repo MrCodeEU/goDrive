@@ -7,3 +7,4 @@ var/
 web/dist/
 web/node_modules/
 /godrive
+.claude/worktrees/
