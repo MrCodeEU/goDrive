@@ -8,19 +8,18 @@ import receive_sharing_intent
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    SwiftReceiveSharingIntentPlugin.appGroupIdentifier = "group.com.example.godrive"
-    SwiftReceiveSharingIntentPlugin.userDefaultsKey = "com.example.godrive-SharedDataKey"
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
+  // Forward ShareMedia-* URLs to receive_sharing_intent.
   override func application(
     _ app: UIApplication,
     open url: URL,
     options: [UIApplication.OpenURLOptionsKey: Any] = [:]
   ) -> Bool {
-    let plugin = SwiftReceiveSharingIntentPlugin.instance
-    if plugin.hasMatchingSchemePrefix(url: url) {
-      return plugin.application(app, open: url, options: options)
+    let sharing = SwiftReceiveSharingIntentPlugin.instance
+    if sharing.hasMatchingSchemePrefix(url: url) {
+      return sharing.application(app, open: url, options: options)
     }
     return super.application(app, open: url, options: options)
   }

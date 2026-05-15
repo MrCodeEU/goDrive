@@ -61,6 +61,8 @@
     </array>
     <key>UIViewControllerBasedStatusBarAppearance</key>
     <false/>
+    <key>AppGroupId</key>
+    <string>group.com.example.godrive</string>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>
@@ -68,7 +70,7 @@
             <string>Editor</string>
             <key>CFBundleURLSchemes</key>
             <array>
-                <string>godrive</string>
+                <string>ShareMedia-com.example.godrive</string>
             </array>
         </dict>
     </array>

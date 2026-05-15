@@ -4,18 +4,31 @@ on:
   push:
     tags:
       - 'v*'
+  # Also push latest on every successful CI run on main
+  workflow_run:
+    workflows: [CI]
+    branches: [main]
+    types: [completed]
   workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build-push:
     name: Build and push Docker image
     runs-on: ubuntu-latest
+    # On workflow_run trigger, only proceed if CI actually passed
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     permissions:
       contents: read
       packages: write
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # For workflow_run we need the SHA that CI ran on
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
