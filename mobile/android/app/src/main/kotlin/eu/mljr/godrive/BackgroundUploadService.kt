@@ -1,4 +1,4 @@
-package com.example.godrive
+package eu.mljr.godrive
 
 import android.app.Notification
 import android.app.NotificationChannel

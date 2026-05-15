@@ -402,38 +402,119 @@ class _FilesScreenState extends State<FilesScreen> {
   }
 
   Future<String?> _pickUploadFolder() async {
-    // Show a simple dialog with breadcrumb/current path as default
-    // User can type a path or accept current path
-    String? result = _currentPath;
     if (!mounted) return null;
-    result = await showDialog<String>(
+
+    List<FileEntry> folders = [];
+    String selected = _currentPath;
+    bool loading = true;
+
+    return showModalBottomSheet<String>(
       context: context,
+      isScrollControlled: true,
       builder: (ctx) {
-        final ctrl = TextEditingController(text: _currentPath);
-        return AlertDialog(
-          title: const Text('Upload to folder'),
-          content: TextField(
-            controller: ctrl,
-            decoration: const InputDecoration(
-              labelText: 'Target folder path',
-              hintText: '/',
-            ),
-            autofocus: true,
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, ctrl.text.trim().isEmpty ? '/' : ctrl.text.trim()),
-              child: const Text('Upload here'),
-            ),
-          ],
+        return StatefulBuilder(
+          builder: (ctx, setState) {
+            if (loading) {
+              // Load folders async, then rebuild
+              _client.listFileTree().then((resp) {
+                if (ctx.mounted) {
+                  setState(() {
+                    folders = resp
+                        .where((e) => e.type == 'dir')
+                        .toList()
+                      ..sort((a, b) => a.path.compareTo(b.path));
+                    loading = false;
+                  });
+                }
+              }).catchError((_) {
+                if (ctx.mounted) setState(() => loading = false);
+              });
+            }
+
+            return DraggableScrollableSheet(
+              expand: false,
+              initialChildSize: 0.6,
+              maxChildSize: 0.9,
+              builder: (_, scroll) => Column(
+                children: [
+                  // Handle
+                  Container(
+                    margin: const EdgeInsets.symmetric(vertical: 8),
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade400,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.folder_outlined, size: 20),
+                        const SizedBox(width: 8),
+                        Text('Upload to folder',
+                            style: Theme.of(ctx).textTheme.titleMedium),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: loading
+                        ? const Center(child: CircularProgressIndicator())
+                        : ListView(
+                            controller: scroll,
+                            children: [
+                              // Root entry
+                              _FolderPickerTile(
+                                path: '/',
+                                isSelected: selected == '/',
+                                onTap: () => setState(() => selected = '/'),
+                              ),
+                              ...folders
+                                  .where((e) => e.path != '/')
+                                  .map((e) => _FolderPickerTile(
+                                        path: e.path,
+                                        isSelected: selected == e.path,
+                                        onTap: () =>
+                                            setState(() => selected = e.path),
+                                      )),
+                            ],
+                          ),
+                  ),
+                  const Divider(height: 1),
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(
+                        16, 8, 16, 8 + MediaQuery.of(ctx).viewInsets.bottom),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            selected,
+                            style: Theme.of(ctx).textTheme.bodySmall,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text('Cancel'),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(ctx, selected),
+                          child: const Text('Upload here'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
         );
       },
     );
-    return result;
   }
 
   Future<void> _pickAndUpload() async {
@@ -985,6 +1066,48 @@ class _GridCell extends StatelessWidget {
     return ColoredBox(
       color: const Color(0xFFF0F4F5),
       child: Center(child: Icon(icon, size: 40, color: color)),
+    );
+  }
+}
+
+class _FolderPickerTile extends StatelessWidget {
+  final String path;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _FolderPickerTile({
+    required this.path,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final depth = path == '/'
+        ? 0
+        : path.split('/').where((s) => s.isNotEmpty).length - 1;
+    final name = path == '/'
+        ? 'My files'
+        : path.split('/').where((s) => s.isNotEmpty).last;
+    return ListTile(
+      dense: true,
+      contentPadding: EdgeInsets.only(left: 16.0 + depth * 12, right: 16),
+      leading: Icon(
+        isSelected ? Icons.folder : Icons.folder_outlined,
+        color: isSelected ? Theme.of(context).colorScheme.primary : null,
+        size: 20,
+      ),
+      title: Text(
+        name,
+        style: TextStyle(
+          fontWeight: isSelected ? FontWeight.w600 : null,
+          color: isSelected ? Theme.of(context).colorScheme.primary : null,
+        ),
+      ),
+      subtitle:
+          depth > 0 ? Text(path, style: const TextStyle(fontSize: 11)) : null,
+      selected: isSelected,
+      onTap: onTap,
     );
   }
 }

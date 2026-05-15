@@ -229,6 +229,10 @@ POST   /api/webhooks/{id}/test
 
 Bearer token auth skips CSRF. Cookie auth requires `X-CSRF-Token` on mutating requests.
 
+```text
+GET/PUT/DELETE/PROPFIND/...  /dav/{path}   WebDAV mount (per-user home root)
+```
+
 ## Quality Gate
 
 ```sh

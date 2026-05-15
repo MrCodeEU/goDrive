@@ -135,6 +135,8 @@ Android emulator reaches host backend at `http://10.0.2.2:8121`.
 
 **Webhooks:** `server.fireEvent(user, event, data)` dispatches asynchronously. Each hook gets its own `context.WithTimeout(context.Background(), 2min)` — independent of the query context that found the hooks (bug-prone otherwise: shared cancel = premature abort). HTTP POST with `X-GoDrive-Signature: sha256=<hmac>`, 3 attempts, backoff 0s/5s/30s.
 
+**WebDAV:** mounted at `/dav/` per authenticated user, backed by `webdav.Dir(user.HomeRoot)` from `golang.org/x/net/webdav`. Per-user in-memory lock system. Mount in macOS Finder: `http://host:8121/dav/` with bearer token or cookie auth. No file-index integration — operates directly on filesystem.
+
 **SQLite pragmas:** WAL journal mode, `synchronous = NORMAL`, foreign keys on, 5s busy timeout. `MaxOpenConns(8)` — WAL allows concurrent reads; writes still serialize at the SQLite layer.
 
 **Auth per-request cost:** `UserByValidSession` is a single JOIN (sessions + users) — one DB round-trip per authenticated request.

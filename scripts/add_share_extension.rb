@@ -10,7 +10,7 @@ require 'xcodeproj'
 
 PROJECT_PATH   = 'mobile/ios/Runner.xcodeproj'
 EXTENSION_NAME = 'ShareExtension'
-EXTENSION_ID   = 'com.example.godrive.ShareExtension'
+EXTENSION_ID   = 'eu.mljr.godrive.ShareExtension'
 IOS_TARGET     = '16.0'
 
 project = Xcodeproj::Project.open(PROJECT_PATH)

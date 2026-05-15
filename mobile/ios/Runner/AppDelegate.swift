@@ -68,7 +68,7 @@ private final class IOSBackgroundUploader: NSObject, URLSessionDelegate, URLSess
 
   private let queueKey = "flutter.godrive_upload_queue"
   private let taskKey = "godrive_ios_background_tasks"
-  private let sessionIdentifier = "com.example.godrive.background_uploads"
+  private let sessionIdentifier = "eu.mljr.godrive.background_uploads"
   private let staleTaskGraceSeconds: TimeInterval = 30
   private var completionHandler: (() -> Void)?
   private var responseData: [Int: Data] = [:]

@@ -117,6 +117,13 @@ class ApiClient {
     return ListPage.fromJson(body);
   }
 
+  Future<List<FileEntry>> listFileTree() async {
+    final body = await _get('/api/files/tree');
+    return (body['entries'] as List<dynamic>)
+        .map((e) => FileEntry.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
   Future<List<FileEntry>> searchFiles(String query, {int limit = 50}) async {
     final body =
         await _get('/api/files/search', {'q': query, 'limit': '$limit'});

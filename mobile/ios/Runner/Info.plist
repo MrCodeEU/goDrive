@@ -62,7 +62,7 @@
     <key>UIViewControllerBasedStatusBarAppearance</key>
     <false/>
     <key>AppGroupId</key>
-    <string>group.com.example.godrive</string>
+    <string>group.eu.mljr.godrive</string>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>
@@ -70,9 +70,16 @@
             <string>Editor</string>
             <key>CFBundleURLSchemes</key>
             <array>
-                <string>ShareMedia-com.example.godrive</string>
+                <string>ShareMedia-eu.mljr.godrive</string>
             </array>
         </dict>
     </array>
+    <key>UIApplicationSceneManifest</key>
+    <dict>
+        <key>UIApplicationSupportsMultipleScenes</key>
+        <false/>
+        <key>UISceneConfigurations</key>
+        <dict/>
+    </dict>
 </dict>
 </plist>

@@ -7,8 +7,8 @@ import UniformTypeIdentifiers
 // can read it via getInitialMedia() / getMediaStream().
 class ShareViewController: SLComposeServiceViewController {
 
-    private let appGroupId   = "group.com.example.godrive"
-    private let bundleId     = "com.example.godrive"
+    private let appGroupId   = "group.eu.mljr.godrive"
+    private let bundleId     = "eu.mljr.godrive"
     private let shareKey     = "ShareKey"
 
     private struct MediaItem: Encodable {
