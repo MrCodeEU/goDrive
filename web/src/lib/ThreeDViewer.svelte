@@ -6,6 +6,7 @@
   import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
   import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
   import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
+  import { ThreeMFLoader } from "three/examples/jsm/loaders/3MFLoader.js";
 
   export let src: string;
   export let name = "";
@@ -145,6 +146,11 @@
         geometry.computeVertexNormals();
         onObject(new THREE.Mesh(geometry, defaultMaterial()));
       }, undefined, onError);
+      return;
+    }
+
+    if (extension === "3mf") {
+      new ThreeMFLoader().load(url, object => onObject(object), undefined, onError);
       return;
     }
 

@@ -103,6 +103,10 @@
   let viewMode: "grid" | "list" = (() => {
     try { return (localStorage.getItem('godrive_view') as "grid" | "list") || "grid"; } catch { return "grid"; }
   })();
+  let darkMode: boolean = (() => {
+    try { return localStorage.getItem('godrive_theme') === 'dark'; } catch { return false; }
+  })();
+  $: { try { document.documentElement.classList.toggle('light', !darkMode); } catch {} }
   let sortOption: SortOption = "name_asc";
   let fileTypeFilter: FileTypeFilter = "all";
 
@@ -181,6 +185,11 @@
     }
   }
 
+  function toggleTheme() {
+    darkMode = !darkMode;
+    try { localStorage.setItem('godrive_theme', darkMode ? 'dark' : 'light'); } catch {}
+  }
+
   function observeSentinel(node: HTMLElement) {
     loadMoreObserver?.observe(node);
     return { destroy() { loadMoreObserver?.unobserve(node); } };
@@ -202,6 +211,7 @@
   $: saveQueueToStorage(uploadQueue);
 
   onMount(() => {
+    document.documentElement.classList.toggle('light', !darkMode);
     const onPopState = () => {
       void loadPath(pathFromURL(), { push: false });
     };
@@ -1353,7 +1363,6 @@
         <span>{user.username}</span>
       </div>
       <button class:active={currentPath === "/"} type="button" on:click={() => loadPath("/", { push: true })}><Icon name="folder" />My files</button>
-      <button type="button" on:click={openTrash}><Icon name="trash" />Trash</button>
       <div class="tree">
         {#if visibleTree.length === 0}
           <div class="tree-empty">No folders found</div>
@@ -1379,10 +1388,16 @@
             <button type="button" class="tree-toggle" on:click={() => toggleTree(row.path)} disabled={!treeChildPaths.has(row.path)}>
               {#if treeChildPaths.has(row.path)}<Icon name={openTree.has(row.path) ? "chevronDown" : "chevronRight"} />{/if}
             </button>
-            <button type="button" class="tree-link" on:click={() => loadPath(row.path, { push: true })}><Icon name="folder" />{row.name}</button>
+            <button type="button" class="tree-link"
+              on:click={() => { if (treeChildPaths.has(row.path)) toggleTree(row.path); else loadPath(row.path, { push: true }); }}
+              on:dblclick={() => loadPath(row.path, { push: true })}
+            ><Icon name="folder" />{row.name}</button>
           </div>
           {/each}
         {/if}
+      </div>
+      <div class="sidebar-trash">
+        <button type="button" on:click={openTrash}><Icon name="trash" />Trash</button>
       </div>
     </aside>
 
@@ -1397,7 +1412,7 @@
           <button type="button" on:click={refreshCurrentFolder}><Icon name="refresh" />Refresh</button>
           <button type="button" title="Keyboard shortcuts (?)" on:click={() => (shortcutsOpen = true)}><Icon name="keyboard" />?</button>
           {#if user.is_admin}<button type="button" on:click={openAdmin}><Icon name="admin" />Admin</button>{/if}
-          <button type="button" on:click={openTrash}><Icon name="trash" />Trash</button>
+          <button class="theme-toggle" type="button" title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'} on:click={toggleTheme}>{darkMode ? '☀️' : '🌙'}</button>
           <button type="button" on:click={submitLogout}><Icon name="logout" />Logout</button>
         </div>
       </header>
@@ -1562,12 +1577,28 @@
 
     {#if searchOpen}
       <div class="modal-backdrop" role="presentation" tabindex="-1" on:click={(event) => event.target === event.currentTarget && (searchOpen = false)} on:keydown={(event) => event.key === "Escape" && (searchOpen = false)}>
-        <section class="modal-panel">
-          <header><h2>Search results</h2><button type="button" on:click={() => (searchOpen = false)}>×</button></header>
-          <div class="result-list">
+        <section class="modal-panel" style="max-width: 860px; width: 92vw;">
+          <header><h2>Search results <small style="color:var(--text-2);font-weight:400;font-size:14px;">— {searchResults.length} found</small></h2><button type="button" on:click={() => (searchOpen = false)}>×</button></header>
+          <div class="result-grid">
             {#each searchResults as result (result.path)}
-              <button type="button" on:click={() => { searchOpen = false; result.type === "dir" ? loadPath(result.path, { push: true }) : loadPath(parentPath(result.path), { push: true }); }}>
-                <strong>{result.name}</strong><span>{result.path}</span>
+              <button type="button" class="result-card" on:click={() => { searchOpen = false; if (result.type === "dir") { loadPath(result.path, { push: true }); } else { loadPath(parentPath(result.path), { push: true }); setTimeout(() => openEntry(result), 400); } }}>
+                <div class="result-thumb">
+                  {#if thumbnailKinds.has(result.preview_kind || "")}
+                    <img src={thumbnailURL(result.path, 320)} alt="" loading="lazy" />
+                  {:else}
+                    <span class="file-icon-lg">
+                      <Icon name={result.type === "dir" ? "folder" : fileIconName(result)} />
+                      {#if result.type !== "dir"}{(result.preview_kind || result.name.split(".").pop() || "file").slice(0,4).toUpperCase()}{/if}
+                    </span>
+                  {/if}
+                </div>
+                <div class="result-body">
+                  <div class="result-name">{result.name}</div>
+                  <div class="result-path">{result.path}</div>
+                  {#if result.snippet}
+                    <div class="result-snippet">{@html result.snippet}</div>
+                  {/if}
+                </div>
               </button>
             {/each}
           </div>

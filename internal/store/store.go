@@ -72,6 +72,7 @@ type FileIndexEntry struct {
 	PreviewKind  string    `json:"preview_kind,omitempty"`
 	LastSeenScan string    `json:"last_seen_scan"`
 	UpdatedAt    time.Time `json:"updated_at"`
+	Snippet      string    `json:"snippet,omitempty"`
 }
 
 type DocumentTextEntry struct {

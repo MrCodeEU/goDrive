@@ -456,7 +456,8 @@ func (s *Store) SearchFileIndex(ctx context.Context, userID int64, query string,
 
 func (s *Store) searchFileIndexFTS(ctx context.Context, userID int64, query string, limit int) ([]FileIndexEntry, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT fi.user_id, fi.path, fi.parent_path, fi.name, fi.type, fi.size, fi.modified_at, fi.mime_type, fi.preview_kind, fi.last_seen_scan, fi.updated_at
+		SELECT fi.user_id, fi.path, fi.parent_path, fi.name, fi.type, fi.size, fi.modified_at, fi.mime_type, fi.preview_kind, fi.last_seen_scan, fi.updated_at,
+		       snippet(file_index_fts, 2, '<mark>', '</mark>', '…', 12)
 		FROM file_index_fts
 		JOIN file_index fi ON fi.user_id = file_index_fts.user_id AND fi.path = file_index_fts.path
 		WHERE file_index_fts MATCH ?
@@ -470,7 +471,7 @@ func (s *Store) searchFileIndexFTS(ctx context.Context, userID int64, query stri
 		_ = rows.Close()
 	}()
 
-	return scanFileIndexRows(rows)
+	return scanFileIndexRowsWithSnippet(rows)
 }
 
 func (s *Store) searchFileIndexLike(ctx context.Context, userID int64, query string, limit int) ([]FileIndexEntry, error) {
@@ -519,7 +520,8 @@ func (s *Store) appendDocumentSearchResults(ctx context.Context, userID int64, q
 
 func (s *Store) searchDocumentTextFTS(ctx context.Context, userID int64, query string, limit int) ([]FileIndexEntry, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT fi.user_id, fi.path, fi.parent_path, fi.name, fi.type, fi.size, fi.modified_at, fi.mime_type, fi.preview_kind, fi.last_seen_scan, fi.updated_at
+		SELECT fi.user_id, fi.path, fi.parent_path, fi.name, fi.type, fi.size, fi.modified_at, fi.mime_type, fi.preview_kind, fi.last_seen_scan, fi.updated_at,
+		       snippet(document_fts, 2, '<mark>', '</mark>', '…', 30)
 		FROM document_fts
 		JOIN file_index fi ON fi.user_id = document_fts.user_id AND fi.path = document_fts.path
 		WHERE document_fts MATCH ?
@@ -531,7 +533,7 @@ func (s *Store) searchDocumentTextFTS(ctx context.Context, userID int64, query s
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
-	return scanFileIndexRows(rows)
+	return scanFileIndexRowsWithSnippet(rows)
 }
 
 func isFileIndexFTSQuery(query string) bool {
@@ -572,6 +574,46 @@ func scanFileIndexRows(rows interface {
 			&entry.PreviewKind,
 			&entry.LastSeenScan,
 			&updatedAt,
+		); err != nil {
+			return nil, err
+		}
+		var err error
+		entry.ModifiedAt, err = scanTime(modifiedAt)
+		if err != nil {
+			return nil, err
+		}
+		entry.UpdatedAt, err = scanTime(updatedAt)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+	return entries, rows.Err()
+}
+
+func scanFileIndexRowsWithSnippet(rows interface {
+	Next() bool
+	Scan(dest ...any) error
+	Err() error
+}) ([]FileIndexEntry, error) {
+	var entries []FileIndexEntry
+	for rows.Next() {
+		var entry FileIndexEntry
+		var modifiedAt string
+		var updatedAt string
+		if err := rows.Scan(
+			&entry.UserID,
+			&entry.Path,
+			&entry.ParentPath,
+			&entry.Name,
+			&entry.Type,
+			&entry.Size,
+			&modifiedAt,
+			&entry.MimeType,
+			&entry.PreviewKind,
+			&entry.LastSeenScan,
+			&updatedAt,
+			&entry.Snippet,
 		); err != nil {
 			return nil, err
 		}

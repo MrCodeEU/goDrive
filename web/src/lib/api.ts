@@ -14,6 +14,7 @@ export type FileEntry = {
   modified_at: string;
   mime_type?: string;
   preview_kind?: string;
+  snippet?: string;
 };
 
 export type LoginResponse = {

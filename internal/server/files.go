@@ -33,6 +33,7 @@ type fileEntryResponse struct {
 	ModifiedAt  time.Time `json:"modified_at"`
 	MimeType    string    `json:"mime_type,omitempty"`
 	PreviewKind string    `json:"preview_kind,omitempty"`
+	Snippet     string    `json:"snippet,omitempty"`
 }
 
 type listCursor struct {
@@ -256,6 +257,7 @@ func fileIndexEntriesToResponse(entries []store.FileIndexEntry) []fileEntryRespo
 			ModifiedAt:  entry.ModifiedAt,
 			MimeType:    entry.MimeType,
 			PreviewKind: entry.PreviewKind,
+			Snippet:     entry.Snippet,
 		})
 	}
 	return response

@@ -14,7 +14,13 @@ func KindForName(name string) string {
 		return "raw"
 	case ".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi":
 		return "video"
-	case ".txt", ".log", ".csv", ".json", ".xml", ".yaml", ".yml", ".toml", ".ini":
+	case ".txt", ".log", ".csv", ".json", ".xml", ".yaml", ".yml", ".toml", ".ini",
+		".go", ".py", ".js", ".ts", ".jsx", ".tsx", ".svelte", ".vue",
+		".rs", ".java", ".c", ".cpp", ".cc", ".cxx", ".h", ".hpp", ".cs",
+		".sh", ".bash", ".zsh", ".fish", ".ps1",
+		".css", ".scss", ".less", ".html", ".htm", ".sql",
+		".env", ".gitignore", ".tf", ".rb", ".php", ".swift",
+		".kt", ".dart", ".lua", ".r", ".jl", ".ex", ".exs":
 		return "text"
 	case ".md", ".markdown":
 		return "markdown"
