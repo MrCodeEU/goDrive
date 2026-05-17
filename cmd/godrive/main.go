@@ -80,11 +80,6 @@ func run() error {
 		if bleveErr != nil {
 			log.Warn("bleve search engine failed to open, falling back to SQLite FTS", "err", bleveErr)
 		} else {
-			defer func() {
-				if err := bleveEngine.Close(); err != nil {
-					log.Warn("failed to close search engine", "err", err)
-				}
-			}()
 			st.SetSearchEngine(bleveEngine)
 			if empty, err := bleveEngine.IsEmpty(); err == nil && empty {
 				log.Info("search index is empty — run a full reindex via admin UI to populate Bleve")

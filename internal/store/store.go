@@ -116,6 +116,9 @@ func Open(path string) (*Store, error) {
 }
 
 func (s *Store) Close() error {
+	if s.engine != nil {
+		_ = s.engine.Close()
+	}
 	return s.db.Close()
 }
 
