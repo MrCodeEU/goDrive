@@ -410,6 +410,7 @@ func (w *Watcher) upsertEntry(ctx context.Context, user store.User, logical stri
 		if err := w.store.UpsertDocumentTextEntry(ctx, store.DocumentTextEntry{
 			UserID:  user.ID,
 			Path:    logical,
+			Name:    entry.Name,
 			Content: content,
 		}); err != nil {
 			return err

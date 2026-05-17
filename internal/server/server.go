@@ -52,7 +52,19 @@ func (s *Server) ListenAndServe() error {
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
+	s.closeAllSubscriptions()
 	return s.httpServer.Shutdown(ctx)
+}
+
+func (s *Server) closeAllSubscriptions() {
+	s.eventsMu.Lock()
+	defer s.eventsMu.Unlock()
+	for userID, subs := range s.eventsSubs {
+		for ch := range subs {
+			close(ch)
+		}
+		delete(s.eventsSubs, userID)
+	}
 }
 
 func (s *Server) StartSessionCleanup(ctx context.Context) {

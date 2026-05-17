@@ -71,7 +71,10 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, user store.User,
 		case <-heartbeat.C:
 			_, _ = fmt.Fprint(w, ": heartbeat\n\n")
 			flusher.Flush()
-		case event := <-events:
+		case event, ok := <-events:
+			if !ok {
+				return
+			}
 			payload, err := json.Marshal(event)
 			if err != nil {
 				continue

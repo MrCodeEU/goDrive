@@ -166,6 +166,7 @@ func (e *BleveEngine) Search(ctx context.Context, userID int64, queryStr string,
 	// Each token must match in name OR content (AND across tokens).
 	// For content, we combine a stemmed match with a prefix query so that
 	// partial words like "plan" also hit "planner".
+	// For tokens >= 4 chars we also add fuzziness=1 for typo tolerance.
 	tokenQueries := make([]query.Query, len(tokens))
 	for i, tok := range tokens {
 		nameQ := bleve.NewMatchQuery(tok)
@@ -179,7 +180,22 @@ func (e *BleveEngine) Search(ctx context.Context, userID int64, queryStr string,
 		contentPrefixQ := bleve.NewPrefixQuery(strings.ToLower(tok))
 		contentPrefixQ.SetField("Content")
 
-		tokenQueries[i] = bleve.NewDisjunctionQuery(nameQ, contentMatchQ, contentPrefixQ)
+		subQ := []query.Query{nameQ, contentMatchQ, contentPrefixQ}
+
+		if len([]rune(tok)) >= 4 {
+			nameFuzzyQ := bleve.NewFuzzyQuery(tok)
+			nameFuzzyQ.SetField("Name")
+			nameFuzzyQ.SetBoost(1.5)
+			nameFuzzyQ.Fuzziness = 1
+
+			contentFuzzyQ := bleve.NewFuzzyQuery(tok)
+			contentFuzzyQ.SetField("Content")
+			contentFuzzyQ.Fuzziness = 1
+
+			subQ = append(subQ, nameFuzzyQ, contentFuzzyQ)
+		}
+
+		tokenQueries[i] = bleve.NewDisjunctionQuery(subQ...)
 	}
 
 	combined := bleve.NewConjunctionQuery(append([]query.Query{userQ}, tokenQueries...)...)
