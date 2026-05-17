@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"mime"
 	"os"
@@ -597,17 +598,21 @@ func (s *Server) runPreviewWarmupJob(ctx context.Context, jobID string) {
 		return
 	}
 
-	s.runPreviewWarmupWorkers(ctx, jobID, candidates, sizes)
+	generated, failed := s.runPreviewWarmupWorkers(ctx, jobID, candidates, sizes)
 
 	if err := ctx.Err(); err != nil {
 		s.finishJob(jobID, "canceled", "preview warmup canceled")
 		return
 	}
-	if snapshot := s.jobs.Snapshot(); snapshot != nil && snapshot.ID == jobID && snapshot.Failed > 0 {
-		s.finishJob(jobID, "failed", "preview warmup completed with errors")
+	total := int64(len(candidates) * len(sizes))
+	cached := total - generated - failed
+	summary := fmt.Sprintf("generated %d new, %d already cached, %d failed", generated, cached, failed)
+	s.log.Info("preview warmup finished", "generated", generated, "cached", cached, "failed", failed)
+	if failed > 0 {
+		s.finishJob(jobID, "failed", summary)
 		return
 	}
-	s.finishJob(jobID, "completed", "preview warmup completed")
+	s.finishJob(jobID, "completed", summary)
 }
 
 type previewWarmupTask struct {
@@ -616,12 +621,14 @@ type previewWarmupTask struct {
 }
 
 type previewWarmupResult struct {
-	username string
-	path     string
-	err      error
+	username  string
+	path      string
+	size      int
+	err       error
+	generated bool
 }
 
-func (s *Server) runPreviewWarmupWorkers(ctx context.Context, jobID string, candidates []store.PreviewCandidate, sizes []int) {
+func (s *Server) runPreviewWarmupWorkers(ctx context.Context, jobID string, candidates []store.PreviewCandidate, sizes []int) (generated, failed int64) {
 	workers := previewWarmupWorkerCount(s.cfg.PreviewWorkers)
 	tasks := make(chan previewWarmupTask, workers*2)
 	results := make(chan previewWarmupResult, workers*2)
@@ -656,34 +663,45 @@ func (s *Server) runPreviewWarmupWorkers(ctx context.Context, jobID string, cand
 	}()
 
 	var done int64
-	var failed int64
 	var last previewWarmupResult
+	total := int64(len(candidates) * len(sizes))
 	for result := range results {
 		done++
 		last = result
 		if result.err != nil {
 			failed++
+			s.log.Warn("preview warmup failed",
+				"user", result.username,
+				"path", result.path,
+				"size", result.size,
+				"err", result.err,
+			)
+		} else if result.generated {
+			generated++
+			s.log.Debug("preview warmup generated", "user", result.username, "path", result.path, "size", result.size)
 		}
-		if done%adminProgressBatchSize == 0 || done == int64(len(candidates)*len(sizes)) {
+		if done%adminProgressBatchSize == 0 || done == total {
 			currentDone := done
 			currentFailed := failed
+			currentGenerated := generated
 			currentLast := last
 			s.jobs.update(jobID, func(job *AdminJob) {
 				job.Done = currentDone
 				job.Failed = currentFailed
 				if currentLast.err != nil {
-					job.Message = currentLast.err.Error()
+					job.Message = fmt.Sprintf("error on %s:%s — %v", currentLast.username, currentLast.path, currentLast.err)
 				} else {
-					job.Message = "warming " + currentLast.username + ":" + currentLast.path
+					job.Message = fmt.Sprintf("generated %d new, %d already cached, %d failed", currentGenerated, currentDone-currentFailed-currentGenerated, currentFailed)
 				}
 			})
 		}
 	}
+	return
 }
 
 func (s *Server) warmPreview(ctx context.Context, task previewWarmupTask) previewWarmupResult {
 	candidate := task.candidate
-	result := previewWarmupResult{username: candidate.Username, path: candidate.Path}
+	result := previewWarmupResult{username: candidate.Username, path: candidate.Path, size: task.size}
 	resolved, info, err := s.files.ResolveForRead(store.User{ID: candidate.UserID, HomeRoot: candidate.HomeRoot}, candidate.Path)
 	if err != nil {
 		result.err = err
@@ -694,7 +712,9 @@ func (s *Server) warmPreview(ctx context.Context, task previewWarmupTask) previe
 		if err := os.MkdirAll(filepath.Dir(cachePath), 0o750); err != nil {
 			result.err = err
 		} else if err := s.generateThumbnail(ctx, resolved.Physical, candidate.PreviewKind, task.size, cachePath); err != nil {
-			result.err = err
+			result.err = fmt.Errorf("kind=%s: %w", candidate.PreviewKind, err)
+		} else {
+			result.generated = true
 		}
 	} else if err != nil {
 		result.err = err

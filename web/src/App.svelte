@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import Icon from "./lib/Icon.svelte";
   import CodeEditor from "./lib/CodeEditor.svelte";
+  import ThreeDGridThumb from "./lib/ThreeDGridThumb.svelte";
   import {
     adminStats,
     authHeaders,
@@ -17,6 +18,8 @@
     deleteTrash,
     downloadBlob,
     fetchTextPreview,
+    fetchExif,
+    type ExifData,
     joinPath,
     listAdminUsers,
     listFiles,
@@ -70,6 +73,7 @@
     error?: string;
     finalPath?: string;
     tusUrl?: string;
+    attempts: number;
   };
 
   type TreeRow = FileEntry & { level: number };
@@ -100,9 +104,16 @@
   let openTree = new Set<string>(["/"]);
   let selectedIds: string[] = [];
   let anchorId = "";
-  let viewMode: "grid" | "list" = (() => {
-    try { return (localStorage.getItem('godrive_view') as "grid" | "list") || "grid"; } catch { return "grid"; }
+  let viewMode: "grid" | "list" | "masonry" = (() => {
+    try { return (localStorage.getItem('godrive_view') as "grid" | "list" | "masonry") || "grid"; } catch { return "grid"; }
   })();
+  let gridSize: "s" | "m" | "l" = (() => {
+    try { return (localStorage.getItem('godrive_grid_size') as "s" | "m" | "l") || "m"; } catch { return "m"; }
+  })();
+  function setGridSize(s: "s" | "m" | "l") {
+    gridSize = s;
+    try { localStorage.setItem('godrive_grid_size', s); } catch {}
+  }
   let darkMode: boolean = (() => {
     try { return localStorage.getItem('godrive_theme') === 'dark'; } catch { return false; }
   })();
@@ -113,22 +124,32 @@
   let searchQuery = "";
   let searchResults: FileEntry[] = [];
   let searchOpen = false;
+  let searchDialogInput: HTMLInputElement | null = null;
   let shortcutsOpen = false;
   let searchDebounce: ReturnType<typeof setTimeout> | null = null;
   let uploadInput: HTMLInputElement | null = null;
   let uploadQueue: UploadQueueItem[] = loadQueueFromStorage();
   let uploadQueueCollapsed = uploadQueue.length === 0;
+  let uploadPreparing = false;
   let dragOver = false;
   let uploadsActive = false;
 
   let viewerFile: FileEntry | null = null;
   let viewerText: TextPreview | null = null;
   let viewerTextLoading = false;
+  let viewerTextError = "";
   let viewerZoom = 1;
   let viewerOriginal = false;
   let editorMode = false;
   let editorContent = '';
   let editorDirty = false;
+  let viewerSidebarOpen: boolean = (() => { try { return localStorage.getItem('godrive_viewer_sidebar') !== 'false'; } catch { return true; } })();
+  let viewerExif: ExifData | null = null;
+  let viewerExifLoading = false;
+  function toggleViewerSidebar() {
+    viewerSidebarOpen = !viewerSidebarOpen;
+    try { localStorage.setItem('godrive_viewer_sidebar', String(viewerSidebarOpen)); } catch {}
+  }
   let editorSaving = false;
   let editorRef: CodeEditor | null = null;
 
@@ -159,6 +180,8 @@
   let contextMenu: ContextMenu | null = null;
 
   let infoEntry: FileEntry | null = null;
+  let infoExif: ExifData | null = null;
+  let infoExifLoading = false;
   let sentinelEl: HTMLElement | null = null;
   let loadMoreObserver: IntersectionObserver | null = null;
   let dragTargetPath: string | null = null;
@@ -182,6 +205,22 @@
       addToast('Path copied to clipboard', 'info');
     } catch {
       addToast('Failed to copy path', 'error');
+    }
+  }
+
+  async function openInfoPanel(entry: FileEntry | null) {
+    infoEntry = entry;
+    infoExif = null;
+    if (!entry || entry.type !== 'file') return;
+    const kind = entry.preview_kind || '';
+    if (kind !== 'image' && kind !== 'raw') return;
+    infoExifLoading = true;
+    try {
+      infoExif = await fetchExif(entry.path);
+    } catch {
+      // exiftool unavailable or not an image — ignore
+    } finally {
+      infoExifLoading = false;
     }
   }
 
@@ -435,18 +474,21 @@
 
   async function uploadSelectedFiles(event: Event) {
     const input = event.currentTarget as HTMLInputElement;
+    uploadPreparing = true;
+    uploadQueueCollapsed = false;
+    await tick();
     const files = Array.from(input.files || []);
     input.value = "";
+    uploadPreparing = false;
     await uploadFiles(files);
   }
 
   async function uploadFiles(files: File[]) {
     if (files.length === 0) return;
     const queued = files.map(file => createUploadQueueItem(file, currentPath));
-    uploadQueue = [...queued, ...uploadQueue].slice(0, 100);
+    uploadQueue = [...queued, ...uploadQueue];
     uploadQueueCollapsed = false;
-    await uploadQueuedFiles(queued);
-    await refreshCurrentFolder();
+    void uploadQueuedFiles(queued);
   }
 
   async function uploadQueuedFiles(items: UploadQueueItem[]) {
@@ -455,17 +497,21 @@
       while (next < items.length) {
         const item = items[next++];
         await uploadOne(item);
+        void refreshCurrentFolder();
       }
     });
     await Promise.all(workers);
   }
+
+  const uploadMaxAttempts = 3;
 
   async function uploadOne(item: UploadQueueItem) {
     if (!item.file) {
       setUploadItem(item.id, { status: "interrupted" });
       return;
     }
-    setUploadItem(item.id, { status: "uploading", progress: 0, error: "" });
+    const attempt = (item.attempts || 0) + 1;
+    setUploadItem(item.id, { status: "uploading", progress: 0, error: "", attempts: attempt });
     try {
       const finalPath = await uploadTus(
         item.file,
@@ -475,12 +521,20 @@
       );
       setUploadItem(item.id, { status: "done", progress: 100, finalPath: finalPath || joinPath(item.targetPath, item.name) });
     } catch (err) {
-      setUploadItem(item.id, { status: "error", error: messageFromError(err) });
+      if (attempt < uploadMaxAttempts) {
+        await new Promise(r => setTimeout(r, 1000 * attempt));
+        const current = uploadQueue.find(i => i.id === item.id);
+        if (current) await uploadOne(current);
+      } else {
+        setUploadItem(item.id, { status: "error", error: messageFromError(err) });
+      }
     }
   }
 
   async function retryUpload(item: UploadQueueItem) {
     if (!item.file) return;
+    setUploadItem(item.id, { attempts: 0 });
+    const current = uploadQueue.find(i => i.id === item.id) ?? item;
     if (item.tusUrl) {
       setUploadItem(item.id, { status: "uploading", progress: 0, error: "" });
       try {
@@ -490,9 +544,9 @@
         setUploadItem(item.id, { status: "error", error: messageFromError(err) });
       }
     } else {
-      await uploadOne(item);
+      await uploadOne(current);
     }
-    await refreshCurrentFolder();
+    void refreshCurrentFolder();
   }
 
   function selectEntry(entry: FileEntry, event: MouseEvent) {
@@ -535,17 +589,23 @@
     anchorId = entry.path;
     viewerFile = entry;
     viewerText = null;
+    viewerTextError = "";
+    viewerExif = null;
     viewerZoom = 1;
     viewerOriginal = false;
     editorMode = false;
     editorContent = '';
     editorDirty = false;
+    if (entry.preview_kind === "image" || entry.preview_kind === "raw") {
+      viewerExifLoading = true;
+      fetchExif(entry.path).then(d => { viewerExif = d; }).catch(() => {}).finally(() => { viewerExifLoading = false; });
+    }
     if (entry.preview_kind === "text" || entry.preview_kind === "markdown") {
       viewerTextLoading = true;
       try {
         viewerText = await fetchTextPreview(entry.path);
       } catch (err) {
-        error = messageFromError(err);
+        viewerTextError = messageFromError(err);
       } finally {
         viewerTextLoading = false;
       }
@@ -555,8 +615,10 @@
   function closeViewer() {
     viewerFile = null;
     viewerText = null;
+    viewerTextError = "";
     editorMode = false;
     editorDirty = false;
+    viewerExif = null;
   }
 
   async function saveEditorContent() {
@@ -903,7 +965,7 @@
       void createFolder();
     } else if (event.key === 'i' && selectedIds.length === 1 && !viewerFile) {
       event.preventDefault();
-      infoEntry = entryByPath(selectedIds[0]);
+      openInfoPanel(entryByPath(selectedIds[0]));
     } else if (event.key === '?' && !shouldIgnoreShortcut(event.target)) {
       event.preventDefault();
       shortcutsOpen = !shortcutsOpen;
@@ -926,7 +988,7 @@
   function moveSelection(event: KeyboardEvent) {
     if (visibleEntries.length === 0) return;
     event.preventDefault();
-    const columns = viewMode === "grid" ? gridColumnEstimate() : 1;
+    const columns = (viewMode === "grid" || viewMode === "masonry") ? gridColumnEstimate() : 1;
     const delta = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : event.key === "ArrowDown" ? columns : -columns;
     const current = selectedIds.at(-1) || anchorId;
     const currentIndex = Math.max(0, current ? visibleEntries.findIndex(entry => entry.path === current) : 0);
@@ -1018,7 +1080,8 @@
       size: file.size,
       targetPath,
       progress: 0,
-      status: "queued"
+      status: "queued",
+      attempts: 0,
     };
   }
 
@@ -1162,6 +1225,28 @@
     return rows;
   }
 
+  function masonryLayout(node: HTMLElement) {
+    const ROW_PX = 4;
+    function layout() {
+      const isMasonry = node.classList.contains('masonry');
+      node.querySelectorAll<HTMLElement>('.file-card').forEach(card => {
+        card.style.gridRowEnd = '';
+        if (!isMasonry) return;
+        const h = card.getBoundingClientRect().height;
+        const span = Math.ceil((h + ROW_PX) / ROW_PX);
+        card.style.gridRowEnd = `span ${span}`;
+      });
+    }
+    const ro = new ResizeObserver(layout);
+    ro.observe(node);
+    node.addEventListener('load', layout, true); // image load (capture)
+    layout();
+    return {
+      update() { layout(); },
+      destroy() { ro.disconnect(); node.removeEventListener('load', layout, true); }
+    };
+  }
+
   function fileTypeLabel(entry: FileEntry) {
     if (entry.type === "dir") return "Folder";
     const kind = entry.preview_kind || "";
@@ -1223,6 +1308,8 @@
     await runAction("Searching", async () => {
       searchResults = (await searchFiles(query, 80)).entries;
       searchOpen = true;
+      await tick();
+      searchDialogInput?.focus();
     });
   }
 
@@ -1306,6 +1393,15 @@
     if (item.status === "done") return "Done";
     if (item.status === "interrupted") return "Interrupted";
     return "Failed";
+  }
+
+  function uploadSummaryText(queue: UploadQueueItem[]) {
+    const total = queue.length;
+    const done = queue.filter(i => i.status === "done").length;
+    const failed = queue.filter(i => i.status === "error").length;
+    if (failed > 0) return `${done}/${total} · ${failed} failed`;
+    if (done === total) return `${total} done`;
+    return `${done}/${total}`;
   }
 
   function emptyNewUser() {
@@ -1404,16 +1500,18 @@
     <section class="workspace">
       <header class="topbar">
         <form class="search" on:submit|preventDefault={submitSearch}>
-          <input bind:value={searchQuery} placeholder="Search files" on:input={onSearchInput} />
-          <button type="submit"><Icon name="search" />Search</button>
+          <span class="search-icon"><Icon name="search" /></span>
+          <input bind:value={searchQuery} placeholder="Search files…" on:input={onSearchInput} on:focus={() => { if (searchQuery.trim()) searchOpen = true; }} readonly={searchOpen} />
+          {#if busy}<span class="search-spinner"></span>{/if}
         </form>
         <div class="topbar-actions">
-          {#if busy}<span class="busy">{busy}</span>{/if}
-          <button type="button" on:click={refreshCurrentFolder}><Icon name="refresh" />Refresh</button>
-          <button type="button" title="Keyboard shortcuts (?)" on:click={() => (shortcutsOpen = true)}><Icon name="keyboard" />?</button>
-          {#if user.is_admin}<button type="button" on:click={openAdmin}><Icon name="admin" />Admin</button>{/if}
-          <button class="theme-toggle" type="button" title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'} on:click={toggleTheme}>{darkMode ? '☀️' : '🌙'}</button>
-          <button type="button" on:click={submitLogout}><Icon name="logout" />Logout</button>
+          <div class="topbar-btn-group">
+            <button type="button" title="Refresh" on:click={refreshCurrentFolder}><Icon name="refresh" /></button>
+            <button type="button" title="Keyboard shortcuts" on:click={() => (shortcutsOpen = true)}><Icon name="keyboard" /></button>
+            {#if user.is_admin}<button type="button" title="Admin" on:click={openAdmin}><Icon name="admin" /></button>{/if}
+          </div>
+          <button class="theme-toggle" type="button" title={darkMode ? 'Light mode' : 'Dark mode'} on:click={toggleTheme}>{darkMode ? '☀️' : '🌙'}</button>
+          <button class="topbar-logout" type="button" title="Logout" on:click={submitLogout}><Icon name="logout" /></button>
         </div>
       </header>
 
@@ -1426,9 +1524,16 @@
             <button type="button" on:click={() => loadPath(crumb.path, { push: true })}>{crumb.name}</button>
           {/each}
         </div>
-        <div class="view-toggle">
-          <button class:active={viewMode === "grid"} type="button" title="Grid view" aria-label="Grid view" on:click={() => { viewMode = "grid"; try { localStorage.setItem('godrive_view', 'grid'); } catch {} }}><Icon name="grid" /></button>
-          <button class:active={viewMode === "list"} type="button" title="List view" aria-label="List view" on:click={() => { viewMode = "list"; try { localStorage.setItem('godrive_view', 'list'); } catch {} }}><Icon name="list" /></button>
+        <div class="view-toggle view-controls">
+          <button class:active={viewMode === "grid"} type="button" title="Grid view" on:click={() => { viewMode = "grid"; try { localStorage.setItem('godrive_view', 'grid'); } catch {} }}><Icon name="grid" /></button>
+          <button class:active={viewMode === "masonry"} type="button" title="Masonry view" on:click={() => { viewMode = "masonry"; try { localStorage.setItem('godrive_view', 'masonry'); } catch {} }}>
+            <svg viewBox="0 0 16 16" fill="currentColor" width="16" height="16"><rect x="1" y="1" width="6" height="4" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="7" width="6" height="8" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
+          </button>
+          <button class:active={viewMode === "list"} type="button" title="List view" on:click={() => { viewMode = "list"; try { localStorage.setItem('godrive_view', 'list'); } catch {} }}><Icon name="list" /></button>
+          <span class="view-sep"></span>
+          <button class:active={gridSize === "s"} type="button" title="Small" on:click={() => setGridSize("s")}>S</button>
+          <button class:active={gridSize === "m"} type="button" title="Medium" on:click={() => setGridSize("m")}>M</button>
+          <button class:active={gridSize === "l"} type="button" title="Large" on:click={() => setGridSize("l")}>L</button>
         </div>
       </div>
 
@@ -1448,7 +1553,7 @@
         <button type="button" disabled={selectedIds.length === 0} on:click={downloadSelected}><Icon name="download" />Download</button>
         <button type="button" disabled={selectedIds.length === 0} on:click={deleteSelected}><Icon name="trash" />Delete</button>
         <button type="button" disabled={selectedIds.length !== 1} on:click={() => copyPath(selectedIds[0])}><Icon name="copy" />Copy path</button>
-        <button type="button" disabled={selectedIds.length !== 1} on:click={() => (infoEntry = entryByPath(selectedIds[0]))}><Icon name="info" />Info</button>
+        <button type="button" disabled={selectedIds.length !== 1} on:click={() => openInfoPanel(entryByPath(selectedIds[0]))}><Icon name="info" />Info</button>
         <div class="spacer"></div>
         <label class="control-field"><Icon name="sort" /><span>Sort</span><select bind:value={sortOption} on:change={changeSort}>
           <option value="name_asc">Name A-Z</option>
@@ -1478,7 +1583,8 @@
         </div>
       {/if}
 
-      <section class="file-area" class:list={viewMode === "list"} aria-label="File list">
+      <section class="file-area" class:list={viewMode === "list"} aria-label="File list"
+        style="--grid-min:{gridSize==='s'?'160px':gridSize==='l'?'260px':'210px'};--list-thumb:{gridSize==='s'?'26px':gridSize==='l'?'52px':'36px'};--list-pad:{gridSize==='s'?'5px 10px':gridSize==='l'?'10px 14px':'7px 12px'};--list-fs:{gridSize==='s'?'12.5px':gridSize==='l'?'14.5px':'13.5px'}">
         {#if currentPath !== "/"}
           <button type="button" class="parent-link" on:click={() => loadPath(parentPath(currentPath), { push: true })}>
             ← Back to parent folder
@@ -1501,13 +1607,14 @@
           </div>
         {:else}
 
-        {#if viewMode === "grid"}
-          <div class="grid">
+        {#if viewMode === "grid" || viewMode === "masonry"}
+          <div class="grid" class:masonry={viewMode === "masonry"} use:masonryLayout>
             {#each visibleEntries as entry (entry.path)}
               <button
                 type="button"
                 class="file-card"
                 class:selected={selectedIds.includes(entry.path)}
+                class:masonry-card={viewMode === "masonry"}
                 draggable={true}
                 on:click={(event) => selectEntry(entry, event)}
                 on:dblclick={() => openEntry(entry)}
@@ -1518,11 +1625,15 @@
                   e.dataTransfer!.effectAllowed = 'move';
                 }}
               >
-                <div class="thumb" class:folder={entry.type === "dir"}>
+                <div class="thumb" class:folder={entry.type === "dir"} class:masonry-thumb={viewMode === "masonry" && thumbnailKinds.has(entry.preview_kind || "")}>
                   {#if entry.type === "dir"}
                     <span class="folder-icon"></span>
                   {:else if thumbnailKinds.has(entry.preview_kind || "")}
                     <img src={previewURL(entry)} alt="" loading="lazy" />
+                  {:else if (entry.preview_kind === "text" || entry.preview_kind === "markdown") && entry.snippet}
+                    <span class="text-thumb"><span class="text-thumb-content">{entry.snippet}</span></span>
+                  {:else if entry.preview_kind === "3d"}
+                    <ThreeDGridThumb src={rawFileURL(entry.path)} name={entry.name} path={entry.path} />
                   {:else}
                     <span class="file-icon"><Icon name={fileIconName(entry)} />{(entry.preview_kind || entry.name.split(".").pop() || "file").slice(0, 4).toUpperCase()}</span>
                   {/if}
@@ -1576,111 +1687,184 @@
     {#if dragOver}<div class="drop-overlay">Drop to upload to {currentPath}</div>{/if}
 
     {#if searchOpen}
-      <div class="modal-backdrop" role="presentation" tabindex="-1" on:click={(event) => event.target === event.currentTarget && (searchOpen = false)} on:keydown={(event) => event.key === "Escape" && (searchOpen = false)}>
-        <section class="modal-panel" style="max-width: 860px; width: 92vw;">
-          <header><h2>Search results <small style="color:var(--text-2);font-weight:400;font-size:14px;">— {searchResults.length} found</small></h2><button type="button" on:click={() => (searchOpen = false)}>×</button></header>
-          <div class="result-grid">
-            {#each searchResults as result (result.path)}
-              <button type="button" class="result-card" on:click={() => { searchOpen = false; if (result.type === "dir") { loadPath(result.path, { push: true }); } else { loadPath(parentPath(result.path), { push: true }); setTimeout(() => openEntry(result), 400); } }}>
-                <div class="result-thumb">
-                  {#if thumbnailKinds.has(result.preview_kind || "")}
-                    <img src={thumbnailURL(result.path, 320)} alt="" loading="lazy" />
-                  {:else}
-                    <span class="file-icon-lg">
-                      <Icon name={result.type === "dir" ? "folder" : fileIconName(result)} />
-                      {#if result.type !== "dir"}{(result.preview_kind || result.name.split(".").pop() || "file").slice(0,4).toUpperCase()}{/if}
-                    </span>
-                  {/if}
-                </div>
-                <div class="result-body">
-                  <div class="result-name">{result.name}</div>
-                  <div class="result-path">{result.path}</div>
-                  {#if result.snippet}
-                    <div class="result-snippet">{@html result.snippet}</div>
-                  {/if}
-                </div>
-              </button>
-            {/each}
-          </div>
-        </section>
+      <div class="search-overlay" role="dialog" aria-modal="true" on:click={(e) => e.target === e.currentTarget && (searchOpen = false)} on:keydown={(e) => e.key === "Escape" && (searchOpen = false)} tabindex="-1">
+        <div class="search-dialog">
+          <form class="search-dialog-input" on:submit|preventDefault={submitSearch}>
+            <Icon name="search" />
+            <input bind:this={searchDialogInput} bind:value={searchQuery} placeholder="Search files…" on:input={onSearchInput} />
+            {#if busy}<span class="search-spinner"></span>{/if}
+            <button type="button" class="search-close" on:click={() => (searchOpen = false)}>Esc</button>
+          </form>
+          {#if searchResults.length > 0}
+            <div class="search-filter-row">
+              <span class="search-count">{searchResults.length} result{searchResults.length !== 1 ? 's' : ''}</span>
+            </div>
+            <div class="search-results">
+              {#each searchResults as result (result.path)}
+                <button type="button" class="search-result" on:click={() => { searchOpen = false; if (result.type === "dir") { loadPath(result.path, { push: true }); } else { loadPath(parentPath(result.path), { push: true }); setTimeout(() => openEntry(result), 400); } }}>
+                  <div class="search-result-thumb" class:dir={result.type === "dir"}>
+                    {#if thumbnailKinds.has(result.preview_kind || "")}
+                      <img src={thumbnailURL(result.path, 128)} alt="" loading="lazy" />
+                    {:else if result.type === "dir"}
+                      <span class="mini-folder"></span>
+                    {:else}
+                      <Icon name={fileIconName(result)} />
+                    {/if}
+                  </div>
+                  <div class="search-result-body">
+                    <span class="search-result-name">{result.name}</span>
+                    <span class="search-result-path">{result.path}</span>
+                    {#if result.snippet}<span class="search-result-snippet">{@html result.snippet}</span>{/if}
+                  </div>
+                  <span class="search-result-kind">{result.type === "dir" ? "Folder" : fileTypeLabel(result)}</span>
+                </button>
+              {/each}
+            </div>
+          {:else if searchQuery.length > 0 && !busy}
+            <div class="search-empty">No results for <strong>{searchQuery}</strong></div>
+          {:else}
+            <div class="search-empty">Type to search across all your files</div>
+          {/if}
+        </div>
       </div>
     {/if}
 
     {#if viewerFile}
-      <div class="viewer" role="dialog" aria-modal="true" aria-label={viewerFile.name} tabindex="-1" on:keydown={(event) => event.key === "Escape" && closeViewer()}>
-        <header>
-          <div class="viewer-title"><strong>{viewerFile.name}</strong><span>{fileTypeLabel(viewerFile)} · {formatBytes(viewerFile.size)} · {formatDate(viewerFile.modified_at)}</span></div>
-          <div class="viewer-actions">
-            {#if viewerFile.preview_kind === "image"}
+      <div class="viewer" class:viewer-sidebar-open={viewerSidebarOpen} role="dialog" aria-modal="true" aria-label={viewerFile.name} tabindex="-1"
+        on:keydown={(e) => {
+          if (e.key === "Escape") closeViewer();
+          else if (e.key === "ArrowLeft" && viewerFile?.preview_kind === "image") showAdjacentImage(-1);
+          else if (e.key === "ArrowRight" && viewerFile?.preview_kind === "image") showAdjacentImage(1);
+        }}
+        on:wheel|passive={(e) => {
+          if (viewerFile?.preview_kind === "image" || viewerFile?.preview_kind === "raw") {
+            viewerZoom = Math.min(5, Math.max(0.25, viewerZoom - e.deltaY * 0.001));
+          }
+        }}
+      >
+        <!-- Header -->
+        <header class="viewer-header">
+          <button class="viewer-close" type="button" title="Close (Esc)" on:click={closeViewer}>
+            <Icon name="chevronLeft" /><span>Back</span>
+          </button>
+          <div class="viewer-title">
+            <strong title={viewerFile.name}>{viewerFile.name}</strong>
+            <span>{fileTypeLabel(viewerFile)} · {formatBytes(viewerFile.size)}</span>
+          </div>
+          <div class="viewer-toolbar">
+            {#if viewerFile.preview_kind === "image" || viewerFile.preview_kind === "raw"}
               <div class="viewer-stepper">
-              <button type="button" title="Previous image" on:click={() => showAdjacentImage(-1)}><Icon name="chevronLeft" /></button>
-              <button type="button" title="Next image" on:click={() => showAdjacentImage(1)}><Icon name="chevronRight" /></button>
+                <button type="button" title="Previous (←)" on:click={() => showAdjacentImage(-1)}><Icon name="chevronLeft" /></button>
+                <button type="button" title="Next (→)" on:click={() => showAdjacentImage(1)}><Icon name="chevronRight" /></button>
               </div>
               <div class="viewer-stepper">
-              <button type="button" on:click={() => (viewerZoom = Math.max(0.25, viewerZoom - 0.25))}>−</button>
-              <button type="button" on:click={() => (viewerZoom = 1)}>{Math.round(viewerZoom * 100)}%</button>
-              <button type="button" on:click={() => (viewerZoom = Math.min(5, viewerZoom + 0.25))}>+</button>
+                <button type="button" title="Zoom out" on:click={() => (viewerZoom = Math.max(0.25, viewerZoom - 0.25))}>−</button>
+                <button type="button" title="Reset zoom" on:click={() => (viewerZoom = 1)}>{Math.round(viewerZoom * 100)}%</button>
+                <button type="button" title="Zoom in" on:click={() => (viewerZoom = Math.min(5, viewerZoom + 0.25))}>+</button>
               </div>
-              <button type="button" class:active={viewerOriginal} on:click={() => (viewerOriginal = !viewerOriginal)}>{viewerOriginal ? "Preview" : "Original"}</button>
-            {/if}
-            {#if viewerFile.preview_kind === "text" || viewerFile.preview_kind === "markdown"}
-              <button type="button" on:click={() => { editorMode = !editorMode; }}>
-                {editorMode ? 'Preview' : 'Edit'}
+              <button type="button" class:active={viewerOriginal} title="Toggle original" on:click={() => (viewerOriginal = !viewerOriginal)}>
+                {viewerOriginal ? "Preview" : "Original"}
               </button>
             {/if}
-            <button type="button" on:click={downloadSelected}><Icon name="download" />Download</button>
-            <button type="button" on:click={closeViewer}>Close</button>
+            {#if viewerFile.preview_kind === "text" || viewerFile.preview_kind === "markdown"}
+              <button type="button" on:click={() => (editorMode = !editorMode)}>{editorMode ? "Preview" : "Edit"}</button>
+            {/if}
+            <button type="button" title="Download" on:click={downloadSelected}><Icon name="download" /></button>
+            <button type="button" class:active={viewerSidebarOpen} title="Info panel" on:click={toggleViewerSidebar}>
+              <Icon name="info" />
+            </button>
           </div>
         </header>
-        {#if viewerFile.preview_kind === "image" || viewerFile.preview_kind === "raw" || viewerFile.preview_kind === "office"}
-          <div class="viewer-stage">
-            <img style={`transform: scale(${viewerZoom})`} src={viewerFile.preview_kind === "image" && viewerOriginal ? rawFileURL(viewerFile.path) : thumbnailURL(viewerFile.path, 2048)} alt={viewerFile.name} />
-          </div>
-        {:else if viewerFile.preview_kind === "video"}
-          <video controls src={rawFileURL(viewerFile.path)}><track kind="captions" /></video>
-        {:else if viewerFile.preview_kind === "pdf"}
-          <iframe src={rawFileURL(viewerFile.path)} title={viewerFile.name}></iframe>
-        {:else if viewerFile.preview_kind === "text" || viewerFile.preview_kind === "markdown"}
-          {#if editorMode}
-            <div class="code-editor-wrap">
-              <div class="code-editor-toolbar">
-                <span>{viewerFile.path}</span>
-                <button class="cancel-btn" on:click={() => { editorMode = false; editorDirty = false; }}>Preview</button>
-                <button class="save-btn" disabled={!editorDirty || editorSaving} on:click={saveEditorContent}>
-                  {editorSaving ? 'Saving…' : 'Save'}
-                </button>
+
+        <!-- Body: content + sidebar -->
+        <div class="viewer-body">
+          <!-- Content area -->
+          <div class="viewer-content">
+            {#if viewerFile.preview_kind === "image" || viewerFile.preview_kind === "raw" || viewerFile.preview_kind === "office"}
+              <div class="viewer-stage">
+                <img style={`transform: scale(${viewerZoom})`} src={viewerFile.preview_kind === "image" && viewerOriginal ? rawFileURL(viewerFile.path) : thumbnailURL(viewerFile.path, 2048)} alt={viewerFile.name} />
               </div>
-              <CodeEditor
-                bind:this={editorRef}
-                content={viewerText?.content ?? ''}
-                filename={viewerFile.name}
-                onChange={(v) => { editorContent = v; editorDirty = true; }}
-              />
-            </div>
-          {:else}
-            <div class="text-preview">
-              {#if viewerTextLoading}
-                <p>Loading...</p>
-              {:else if viewerText}
-                <div class="code-editor-toolbar">
-                  <span>{viewerFile.name}</span>
-                  <button class="cancel-btn" on:click={() => { editorMode = true; editorContent = viewerText?.content ?? ''; }}>Edit</button>
-                </div>
-                <pre>{viewerText.content}</pre>
-              {:else}
-                <p>Preview unavailable.</p>
+              {#if viewerFile.preview_kind === "image" || viewerFile.preview_kind === "raw"}
+                <button class="viewer-nav viewer-nav-prev" type="button" title="Previous (←)" on:click={() => showAdjacentImage(-1)}><Icon name="chevronLeft" /></button>
+                <button class="viewer-nav viewer-nav-next" type="button" title="Next (→)" on:click={() => showAdjacentImage(1)}><Icon name="chevronRight" /></button>
               {/if}
-            </div>
+            {:else if viewerFile.preview_kind === "video"}
+              <video controls src={rawFileURL(viewerFile.path)}><track kind="captions" /></video>
+            {:else if viewerFile.preview_kind === "pdf"}
+              <iframe src={rawFileURL(viewerFile.path)} title={viewerFile.name}></iframe>
+            {:else if viewerFile.preview_kind === "text" || viewerFile.preview_kind === "markdown"}
+              {#if editorMode}
+                <div class="code-editor-wrap">
+                  <div class="code-editor-toolbar">
+                    <span>{viewerFile.path}</span>
+                    <button class="cancel-btn" on:click={() => { editorMode = false; editorDirty = false; }}>Preview</button>
+                    <button class="save-btn" disabled={!editorDirty || editorSaving} on:click={saveEditorContent}>{editorSaving ? "Saving…" : "Save"}</button>
+                  </div>
+                  <CodeEditor bind:this={editorRef} content={viewerText?.content ?? ''} filename={viewerFile.name} onChange={(v) => { editorContent = v; editorDirty = true; }} />
+                </div>
+              {:else}
+                <div class="text-preview">
+                  {#if viewerTextLoading}
+                    <p>Loading...</p>
+                  {:else if viewerTextError}
+                    <p class="viewer-error">Failed to load preview: {viewerTextError}</p>
+                  {:else if viewerText}
+                    <div class="code-editor-toolbar">
+                      <span>{viewerFile.name}</span>
+                      <button class="cancel-btn" on:click={() => { editorMode = true; editorContent = viewerText?.content ?? ''; }}>Edit</button>
+                    </div>
+                    <pre>{viewerText.content}</pre>
+                  {:else}
+                    <p>Preview unavailable.</p>
+                  {/if}
+                </div>
+              {/if}
+            {:else if viewerFile.preview_kind === "3d"}
+              {#await loadThreeDViewer()}
+                <div class="viewer-loading">Loading 3D viewer…</div>
+              {:then module}
+                <svelte:component this={module.default} src={rawFileURL(viewerFile.path)} name={viewerFile.name} />
+              {:catch}
+                <div class="viewer-loading">3D viewer unavailable.</div>
+              {/await}
+            {/if}
+          </div>
+
+          <!-- Collapsible info sidebar -->
+          {#if viewerSidebarOpen}
+            <aside class="viewer-sidebar" on:wheel|stopPropagation>
+              <div class="viewer-sidebar-section">
+                <h3>File</h3>
+                <div class="vsb-row"><span>Name</span><strong title={viewerFile.name}>{viewerFile.name}</strong></div>
+                <div class="vsb-row"><span>Path</span><strong class="vsb-mono" title={viewerFile.path}>{viewerFile.path}</strong></div>
+                <div class="vsb-row"><span>Type</span><strong>{fileTypeLabel(viewerFile)}</strong></div>
+                <div class="vsb-row"><span>Size</span><strong>{formatBytes(viewerFile.size)}</strong></div>
+                <div class="vsb-row"><span>Modified</span><strong>{formatDate(viewerFile.modified_at)}</strong></div>
+              </div>
+              {#if viewerExifLoading}
+                <div class="viewer-sidebar-section"><p class="vsb-loading">Loading EXIF…</p></div>
+              {:else if viewerExif}
+                <div class="viewer-sidebar-section">
+                  <h3>EXIF</h3>
+                  {#if viewerExif.has_gps}
+                    <div class="vsb-row vsb-gps">
+                      <span>GPS</span>
+                      <strong class="vsb-mono">{viewerExif.gps_lat?.toFixed(5)}, {viewerExif.gps_lon?.toFixed(5)}</strong>
+                    </div>
+                  {/if}
+                  {#each Object.entries(viewerExif.fields) as [key, value]}
+                    {#if key !== 'GPSLatitude' && key !== 'GPSLongitude' && key !== 'GPSPosition' && key !== 'FileName' && key !== 'FileSize' && key !== 'FileModifyDate' && key !== 'FileType' && key !== 'FileTypeExtension' && key !== 'MIMEType'}
+                      <div class="vsb-row">
+                        <span class="vsb-key">{key.replace(/([A-Z])/g, ' $1').trim()}</span>
+                        <strong class="vsb-val vsb-mono">{typeof value === 'object' ? JSON.stringify(value) : String(value)}</strong>
+                      </div>
+                    {/if}
+                  {/each}
+                </div>
+              {/if}
+            </aside>
           {/if}
-        {:else if viewerFile.preview_kind === "3d"}
-          {#await loadThreeDViewer()}
-            <p>Loading 3D viewer...</p>
-          {:then module}
-            <svelte:component this={module.default} src={rawFileURL(viewerFile.path)} name={viewerFile.name} />
-          {:catch}
-            <p>3D viewer unavailable.</p>
-          {/await}
-        {/if}
+        </div>
       </div>
     {/if}
 
@@ -1807,18 +1991,31 @@
       </div>
     {/if}
 
-    {#if uploadQueue.length > 0}
+    {#if uploadPreparing || uploadQueue.length > 0}
       <aside class="upload-queue">
-        <header><strong>Uploads</strong><button type="button" on:click={() => (uploadQueueCollapsed = !uploadQueueCollapsed)}>{uploadQueueCollapsed ? "Show" : "Hide"}</button></header>
+        <header>
+          <strong>Uploads</strong>
+          {#if uploadQueue.length > 0}
+            <span class="upload-summary">{uploadSummaryText(uploadQueue)}</span>
+          {/if}
+          <button type="button" on:click={() => (uploadQueueCollapsed = !uploadQueueCollapsed)}>{uploadQueueCollapsed ? "Show" : "Hide"}</button>
+        </header>
         {#if !uploadQueueCollapsed}
-          {#each uploadQueue as item (item.id)}
-            <article class:error={item.status === "error"}>
-              <div><strong>{item.name}</strong><span>{uploadStatusText(item)}</span></div>
-              {#if item.status !== "interrupted"}<progress value={item.progress} max="100"></progress>{/if}
-              {#if item.error}<p>{item.error} <button type="button" on:click={() => retryUpload(item)}>Retry</button></p>{/if}
-            </article>
-          {/each}
-          <button type="button" on:click={clearCompletedUploads}>Clear completed</button>
+          {#if uploadPreparing}
+            <p class="upload-preparing">Preparing files…</p>
+          {/if}
+          <div class="upload-list">
+            {#each uploadQueue as item (item.id)}
+              <article class:error={item.status === "error"}>
+                <div><strong>{item.name}</strong><span>{uploadStatusText(item)}</span></div>
+                {#if item.status !== "interrupted"}<progress value={item.progress} max="100"></progress>{/if}
+                {#if item.error}<p>{item.error} <button type="button" on:click={() => retryUpload(item)}>Retry</button></p>{/if}
+              </article>
+            {/each}
+          </div>
+          {#if uploadQueue.length > 0}
+            <button type="button" on:click={clearCompletedUploads}>Clear completed</button>
+          {/if}
         {/if}
       </aside>
     {/if}
@@ -1880,6 +2077,27 @@
             {/if}
             {#if infoEntry.preview_kind}
               <div class="info-row"><span>Preview</span><strong>{infoEntry.preview_kind}</strong></div>
+            {/if}
+            {#if infoExifLoading}
+              <div class="info-exif-loading">Loading EXIF…</div>
+            {:else if infoExif}
+              <div class="info-exif-section">
+                <h3>EXIF Metadata</h3>
+                {#if infoExif.has_gps}
+                  <div class="info-row info-gps">
+                    <span>GPS</span>
+                    <strong class="info-mono">{infoExif.gps_lat?.toFixed(6)}, {infoExif.gps_lon?.toFixed(6)}</strong>
+                  </div>
+                {/if}
+                {#each Object.entries(infoExif.fields) as [key, value]}
+                  {#if key !== 'GPSLatitude' && key !== 'GPSLongitude' && key !== 'GPSPosition'}
+                    <div class="info-row">
+                      <span class="info-exif-key">{key.replace(/([A-Z])/g, ' $1').trim()}</span>
+                      <strong class="info-mono info-exif-val">{typeof value === 'object' ? JSON.stringify(value) : String(value)}</strong>
+                    </div>
+                  {/if}
+                {/each}
+              </div>
             {/if}
           </div>
         </section>

@@ -198,6 +198,17 @@ export async function fetchTextPreview(path: string) {
   return api<TextPreview>(`/api/files/text?path=${encodeURIComponent(path)}`);
 }
 
+export type ExifData = {
+  fields: Record<string, unknown>;
+  gps_lat?: number;
+  gps_lon?: number;
+  has_gps: boolean;
+};
+
+export async function fetchExif(path: string) {
+  return api<ExifData>(`/api/files/exif?path=${encodeURIComponent(path)}`);
+}
+
 export async function listFiles(path: string, offset = 0, limit = 500, cursor = "") {
   const params = new URLSearchParams({ path: path || "/", limit: String(limit) });
   if (cursor) {

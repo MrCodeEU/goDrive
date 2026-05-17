@@ -117,6 +117,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/files/download", s.withUser(s.download))
 	mux.HandleFunc("GET /api/files/raw", s.withUser(s.rawFile))
 	mux.HandleFunc("GET /api/files/text", s.withUser(s.textPreview))
+	mux.HandleFunc("GET /api/files/exif", s.withUser(s.fileExif))
 	mux.HandleFunc("GET /api/files/thumbnail", s.withUser(s.thumbnail))
 	mux.HandleFunc("POST /api/files/move", s.withUser(s.move))
 	mux.HandleFunc("DELETE /api/files", s.withUser(s.deleteFile))

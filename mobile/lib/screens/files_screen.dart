@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -29,6 +30,8 @@ bool _supportsThumbnail(FileEntry entry) {
   };
 }
 
+enum _ViewMode { list, grid, masonry }
+
 class FilesScreen extends StatefulWidget {
   final String path;
   const FilesScreen({super.key, required this.path});
@@ -50,7 +53,7 @@ class _FilesScreenState extends State<FilesScreen> {
   final List<String> _pathStack = [];
   final _searchCtrl = TextEditingController();
   bool _searching = false;
-  bool _gridView = false;
+  _ViewMode _viewMode = _ViewMode.list;
   StreamSubscription? _sharingSubscription;
   final Set<String> _selectedPaths = {};
   final _scrollCtrl = ScrollController();
@@ -898,10 +901,11 @@ class _FilesScreenState extends State<FilesScreen> {
                       onPressed: _showSortFilterSheet,
                     ),
                     IconButton(
-                      icon:
-                          Icon(_gridView ? Icons.view_list : Icons.grid_view),
-                      tooltip: _gridView ? 'List view' : 'Grid view',
-                      onPressed: () => setState(() => _gridView = !_gridView),
+                      icon: Icon(_viewModeIcon(_viewMode)),
+                      tooltip: _viewModeLabel(_viewMode),
+                      onPressed: () => setState(() {
+                        _viewMode = _ViewMode.values[(_viewMode.index + 1) % _ViewMode.values.length];
+                      }),
                     ),
                     IconButton(
                         icon: const Icon(Icons.search),
@@ -1057,7 +1061,8 @@ class _FilesScreenState extends State<FilesScreen> {
         ),
       );
     }
-    if (_gridView && !_searching) return _gridBody();
+    if (_viewMode == _ViewMode.grid && !_searching) return _gridBody();
+    if (_viewMode == _ViewMode.masonry && !_searching) return _masonryBody();
 
     // Search results with filter chips
     if (_searching) {
@@ -1253,6 +1258,161 @@ class _FilesScreenState extends State<FilesScreen> {
           );
         },
       ),
+    );
+  }
+
+  IconData _viewModeIcon(_ViewMode mode) {
+    return switch (mode) {
+      _ViewMode.list => Icons.grid_view,
+      _ViewMode.grid => Icons.view_module,
+      _ViewMode.masonry => Icons.view_list,
+    };
+  }
+
+  String _viewModeLabel(_ViewMode mode) {
+    return switch (mode) {
+      _ViewMode.list => 'Grid view',
+      _ViewMode.grid => 'Masonry view',
+      _ViewMode.masonry => 'List view',
+    };
+  }
+
+  Widget _masonryBody() {
+    final displayEntries = _sortedFilteredEntries();
+    return RefreshIndicator(
+      onRefresh: () async {
+        await _load(_currentPath);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Folder refreshed'),
+              duration: Duration(seconds: 1),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      },
+      child: MasonryGridView.count(
+        crossAxisCount: 2,
+        mainAxisSpacing: 2,
+        crossAxisSpacing: 2,
+        padding: const EdgeInsets.all(2),
+        itemCount: displayEntries.length,
+        itemBuilder: (context, i) {
+          final entry = displayEntries[i];
+          final isSelected = _selectedPaths.contains(entry.path);
+          final inSelectionMode = _selectedPaths.isNotEmpty;
+          final hasThumbnail = _supportsThumbnail(entry);
+          return GestureDetector(
+            onTap: () {
+              if (inSelectionMode) {
+                setState(() {
+                  if (isSelected) { _selectedPaths.remove(entry.path); }
+                  else { _selectedPaths.add(entry.path); }
+                });
+              } else {
+                entry.isDir ? _navigate(entry.path) : _openFile(entry);
+              }
+            },
+            onLongPress: () {
+              if (inSelectionMode) { _showFileActions(entry); }
+              else { setState(() => _selectedPaths.add(entry.path)); }
+            },
+            child: Stack(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: entry.isDir
+                      ? Container(
+                          height: 80,
+                          color: const Color(0xFFFFF8E1),
+                          child: const Center(
+                            child: Icon(Icons.folder_rounded, color: Color(0xFFFFB300), size: 40),
+                          ),
+                        )
+                      : hasThumbnail
+                          ? CachedNetworkImage(
+                              imageUrl: _client.thumbnailUrl(entry.path, 420),
+                              httpHeaders: _client.authHeader,
+                              fit: BoxFit.fitWidth,
+                              width: double.infinity,
+                              placeholder: (_, __) => Container(
+                                height: 120,
+                                color: const Color(0xFF1A2230),
+                                child: const Center(
+                                  child: SizedBox(
+                                    width: 20, height: 20,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white24),
+                                  ),
+                                ),
+                              ),
+                              errorWidget: (_, __, ___) => _masonryFallback(entry),
+                            )
+                          : _masonryFallback(entry),
+                ),
+                if (isSelected)
+                  Positioned.fill(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: Container(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35)),
+                    ),
+                  ),
+                Positioned(
+                  left: 0, right: 0, bottom: 0,
+                  child: ClipRRect(
+                    borderRadius: const BorderRadius.vertical(bottom: Radius.circular(4)),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.bottomCenter,
+                          end: Alignment.topCenter,
+                          colors: [Color(0xCC000000), Colors.transparent],
+                        ),
+                      ),
+                      child: Text(
+                        entry.name,
+                        style: const TextStyle(color: Colors.white, fontSize: 10, height: 1.2),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ),
+                if (isSelected)
+                  Positioned(
+                    top: 6, right: 6,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primary,
+                        shape: BoxShape.circle,
+                      ),
+                      padding: const EdgeInsets.all(2),
+                      child: const Icon(Icons.check, color: Colors.white, size: 16),
+                    ),
+                  ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _masonryFallback(FileEntry entry) {
+    final (icon, color) = switch (entry.previewKind) {
+      'image' || 'raw' => (Icons.image_outlined, const Color(0xFF0B6F68)),
+      'video' => (Icons.videocam_outlined, const Color(0xFF6B4BD8)),
+      'pdf' => (Icons.picture_as_pdf_outlined, const Color(0xFFB73232)),
+      'office' => (Icons.description_outlined, const Color(0xFF2563EB)),
+      '3d' => (Icons.view_in_ar_outlined, const Color(0xFF16845B)),
+      'text' || 'markdown' => (Icons.text_snippet_outlined, const Color(0xFF50606B)),
+      _ => (Icons.insert_drive_file_outlined, const Color(0xFF50606B)),
+    };
+    return Container(
+      height: 80,
+      color: const Color(0xFFF0F4F5),
+      child: Center(child: Icon(icon, size: 32, color: color)),
     );
   }
 

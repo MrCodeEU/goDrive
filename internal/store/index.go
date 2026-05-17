@@ -228,17 +228,19 @@ func (s *Store) ListFileIndexFolder(ctx context.Context, userID int64, parentPat
 
 	afterName = strings.ToLower(afterName)
 	args := []any{userID, parentPath}
-	where := `user_id = ? AND parent_path = ?`
+	where := `fi.user_id = ? AND fi.parent_path = ?`
 	if afterName != "" && afterPath != "" {
-		where += ` AND (type, name COLLATE NOCASE, path COLLATE NOCASE) > (?, ?, ?)`
+		where += ` AND (fi.type, fi.name COLLATE NOCASE, fi.path COLLATE NOCASE) > (?, ?, ?)`
 		args = append(args, afterType, afterName, afterPath)
 	}
 
 	query := `
-		SELECT user_id, path, parent_path, name, type, size, modified_at, mime_type, preview_kind, last_seen_scan, updated_at
-		FROM file_index
+		SELECT fi.user_id, fi.path, fi.parent_path, fi.name, fi.type, fi.size, fi.modified_at, fi.mime_type, fi.preview_kind, fi.last_seen_scan, fi.updated_at,
+		       CASE WHEN fi.preview_kind IN ('text', 'markdown') THEN COALESCE(SUBSTR(dt.content, 1, 300), '') ELSE '' END
+		FROM file_index fi
+		LEFT JOIN document_fts dt ON fi.user_id = dt.user_id AND fi.path = dt.path
 		WHERE ` + where + `
-		ORDER BY type, name COLLATE NOCASE, path COLLATE NOCASE
+		ORDER BY fi.type, fi.name COLLATE NOCASE, fi.path COLLATE NOCASE
 	`
 	if afterName == "" || afterPath == "" {
 		query += ` LIMIT ?`
@@ -258,7 +260,7 @@ func (s *Store) ListFileIndexFolder(ctx context.Context, userID int64, parentPat
 	}
 	defer func() { _ = rows.Close() }()
 
-	entries, err := scanFileIndexRows(rows)
+	entries, err := scanFileIndexRowsWithTextSnippet(rows)
 	if err != nil {
 		return ListFileIndexPage{}, err
 	}
@@ -574,6 +576,46 @@ func scanFileIndexRows(rows interface {
 			&entry.PreviewKind,
 			&entry.LastSeenScan,
 			&updatedAt,
+		); err != nil {
+			return nil, err
+		}
+		var err error
+		entry.ModifiedAt, err = scanTime(modifiedAt)
+		if err != nil {
+			return nil, err
+		}
+		entry.UpdatedAt, err = scanTime(updatedAt)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+	return entries, rows.Err()
+}
+
+func scanFileIndexRowsWithTextSnippet(rows interface {
+	Next() bool
+	Scan(dest ...any) error
+	Err() error
+}) ([]FileIndexEntry, error) {
+	var entries []FileIndexEntry
+	for rows.Next() {
+		var entry FileIndexEntry
+		var modifiedAt string
+		var updatedAt string
+		if err := rows.Scan(
+			&entry.UserID,
+			&entry.Path,
+			&entry.ParentPath,
+			&entry.Name,
+			&entry.Type,
+			&entry.Size,
+			&modifiedAt,
+			&entry.MimeType,
+			&entry.PreviewKind,
+			&entry.LastSeenScan,
+			&updatedAt,
+			&entry.Snippet,
 		); err != nil {
 			return nil, err
 		}

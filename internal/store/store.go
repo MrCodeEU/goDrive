@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"time"
@@ -101,7 +100,8 @@ type IndexStats struct {
 var ErrNotFound = errors.New("not found")
 
 func Open(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path)
+	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -109,10 +109,6 @@ func Open(path string) (*Store, error) {
 	db.SetMaxIdleConns(8)
 
 	store := &Store{db: db}
-	if err := store.configure(context.Background()); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
 	return store, nil
 }
 
@@ -122,21 +118,6 @@ func (s *Store) Close() error {
 
 func (s *Store) DB() *sql.DB {
 	return s.db
-}
-
-func (s *Store) configure(ctx context.Context) error {
-	pragmas := []string{
-		"PRAGMA journal_mode = WAL",
-		"PRAGMA foreign_keys = ON",
-		"PRAGMA busy_timeout = 5000",
-		"PRAGMA synchronous = NORMAL",
-	}
-	for _, pragma := range pragmas {
-		if _, err := s.db.ExecContext(ctx, pragma); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func boolInt(value bool) int {

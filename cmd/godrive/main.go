@@ -17,6 +17,7 @@ import (
 	"godrive/internal/auth"
 	"godrive/internal/config"
 	"godrive/internal/files"
+	"godrive/internal/logging"
 	"godrive/internal/server"
 	"godrive/internal/store"
 	"godrive/internal/watch"
@@ -30,9 +31,13 @@ func main() {
 }
 
 func run() error {
-	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}))
+	logLevel := slog.LevelInfo
+	if raw := os.Getenv("GODRIVE_LOG_LEVEL"); raw != "" {
+		if err := logLevel.UnmarshalText([]byte(raw)); err != nil {
+			logLevel = slog.LevelInfo
+		}
+	}
+	log := slog.New(logging.New(os.Stdout, logLevel))
 	slog.SetDefault(log)
 
 	command := "serve"

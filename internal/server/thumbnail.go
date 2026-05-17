@@ -138,7 +138,7 @@ func (s *Server) generateThumbnailsAsync(user store.User, entry files.Entry) {
 	ctx := context.Background()
 	resolved, info, err := s.files.ResolveForRead(user, entry.Path)
 	if err != nil {
-		s.log.Debug("post-upload thumbnail: resolve failed", "path", entry.Path, "err", err)
+		s.log.Warn("post-upload thumbnail: resolve failed", "path", entry.Path, "err", err)
 		return
 	}
 	for _, size := range previewWarmupSizes {
@@ -151,7 +151,7 @@ func (s *Server) generateThumbnailsAsync(user store.User, entry files.Entry) {
 			continue
 		}
 		if err := s.generateThumbnail(ctx, resolved.Physical, entry.PreviewKind, size, cachePath); err != nil {
-			s.log.Debug("post-upload thumbnail: generate failed", "path", entry.Path, "size", size, "err", err)
+			s.log.Warn("post-upload thumbnail: generate failed", "path", entry.Path, "size", size, "kind", entry.PreviewKind, "err", err)
 		}
 	}
 	s.log.Debug("post-upload thumbnails generated", "path", entry.Path)
@@ -226,8 +226,15 @@ func generateThumbnailWithTimeout(ctx context.Context, timeout time.Duration, so
 	if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
 		return err
 	}
-	tmp := target + ".tmp.jpg"
-	_ = os.Remove(tmp)
+	tmpFile, err := os.CreateTemp(filepath.Dir(target), ".thumb-tmp-*.jpg")
+	if err != nil {
+		return err
+	}
+	tmp := tmpFile.Name()
+	if err := tmpFile.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
 
 	if timeout > 0 {
 		var cancel context.CancelFunc
