@@ -182,7 +182,7 @@ func (e *BleveEngine) Search(ctx context.Context, userID int64, queryStr string,
 
 		subQ := []query.Query{nameQ, contentMatchQ, contentPrefixQ}
 
-		if len([]rune(tok)) >= 4 {
+		if len([]rune(tok)) >= 3 {
 			nameFuzzyQ := bleve.NewFuzzyQuery(tok)
 			nameFuzzyQ.SetField("Name")
 			nameFuzzyQ.SetBoost(1.5)

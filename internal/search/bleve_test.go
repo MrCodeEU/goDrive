@@ -198,3 +198,26 @@ func TestBleveEngine_IsEmpty(t *testing.T) {
 		t.Fatalf("after indexing should not be empty, got empty=%v err=%v", empty, err)
 	}
 }
+
+func TestBleveEngine_FuzzyThreeChars(t *testing.T) {
+	e := newTestEngine(t)
+	ctx := context.Background()
+
+	if err := e.IndexFile(ctx, 1, "/docs/help.txt", "help.txt", ""); err != nil {
+		t.Fatal(err)
+	}
+	// "hlp" → "help": 1 insertion, fuzziness=1, token len=3 → must match
+	results, err := e.Search(ctx, 1, "hlp", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, r := range results {
+		if r.Path == "/docs/help.txt" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("fuzzy: 'hlp' (3 chars) should match 'help' with fuzziness=1, got %v", results)
+	}
+}
