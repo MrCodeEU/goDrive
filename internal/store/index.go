@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path"
+	"sort"
 	"strings"
 	"unicode"
 )
@@ -481,7 +482,62 @@ func (s *Store) DeleteFileIndexPath(ctx context.Context, userID int64, logical s
 	return affected, tx.Commit()
 }
 
+func (s *Store) searchViaEngine(ctx context.Context, userID int64, query string, limit int) ([]FileIndexEntry, error) {
+	results, err := s.engine.Search(ctx, userID, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) == 0 {
+		return nil, nil
+	}
+
+	paths := make([]string, len(results))
+	snippetByPath := make(map[string]string, len(results))
+	rankByPath := make(map[string]int, len(results))
+	for i, r := range results {
+		paths[i] = r.Path
+		snippetByPath[r.Path] = r.Snippet
+		rankByPath[r.Path] = i
+	}
+
+	placeholders := strings.Repeat("?,", len(paths))
+	placeholders = placeholders[:len(placeholders)-1]
+
+	args := make([]any, 0, 1+len(paths))
+	args = append(args, userID)
+	for _, p := range paths {
+		args = append(args, p)
+	}
+
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT user_id, path, parent_path, name, type, size, modified_at, mime_type, preview_kind, last_seen_scan, updated_at
+		 FROM file_index
+		 WHERE user_id = ? AND path IN (`+placeholders+`)`,
+		args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	entries, err := scanFileIndexRows(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range entries {
+		entries[i].Snippet = snippetByPath[entries[i].Path]
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return rankByPath[entries[i].Path] < rankByPath[entries[j].Path]
+	})
+	return entries, nil
+}
+
 func (s *Store) SearchFileIndex(ctx context.Context, userID int64, query string, limit int) ([]FileIndexEntry, error) {
+	if s.engine != nil {
+		return s.searchViaEngine(ctx, userID, query, limit)
+	}
+
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return []FileIndexEntry{}, nil
