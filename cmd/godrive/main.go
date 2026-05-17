@@ -18,6 +18,7 @@ import (
 	"godrive/internal/config"
 	"godrive/internal/files"
 	"godrive/internal/logging"
+	"godrive/internal/search"
 	"godrive/internal/server"
 	"godrive/internal/store"
 	"godrive/internal/watch"
@@ -73,6 +74,22 @@ func run() error {
 
 	if err := st.Migrate(ctx); err != nil {
 		return err
+	}
+	if cfg.SearchEngine == "bleve" {
+		bleveEngine, bleveErr := search.OpenBleve(cfg.SearchDir)
+		if bleveErr != nil {
+			log.Warn("bleve search engine failed to open, falling back to SQLite FTS", "err", bleveErr)
+		} else {
+			defer func() {
+				if err := bleveEngine.Close(); err != nil {
+					log.Warn("failed to close search engine", "err", err)
+				}
+			}()
+			st.SetSearchEngine(bleveEngine)
+			if empty, err := bleveEngine.IsEmpty(); err == nil && empty {
+				log.Info("search index is empty — run a full reindex via admin UI to populate Bleve")
+			}
+		}
 	}
 	if err := bootstrapAdmin(ctx, st, cfg, log); err != nil {
 		return err
@@ -450,6 +467,14 @@ func maintenanceServer(ctx context.Context, cfg config.Config, log *slog.Logger)
 	st, err := openMigratedStore(ctx, cfg)
 	if err != nil {
 		return nil, nil, err
+	}
+	if cfg.SearchEngine == "bleve" {
+		bleveEngine, bleveErr := search.OpenBleve(cfg.SearchDir)
+		if bleveErr != nil {
+			log.Warn("bleve search engine failed to open, falling back to SQLite FTS", "err", bleveErr)
+		} else {
+			st.SetSearchEngine(bleveEngine)
+		}
 	}
 	fileService := files.NewService(cfg.TrashDir, st)
 	return st, server.New(cfg, st, fileService, log), nil

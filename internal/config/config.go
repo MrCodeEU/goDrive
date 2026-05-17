@@ -15,6 +15,8 @@ type Config struct {
 	DatabasePath           string
 	DataRoot               string
 	AppDataDir             string
+	SearchEngine           string // "bleve" or "sqlite"
+	SearchDir              string // path to bleve index files
 	UploadDir              string
 	PreviewDir             string
 	TrashDir               string
@@ -80,6 +82,8 @@ func Load() (Config, error) {
 		AppDataDir:             appData,
 		UploadDir:              env("GODRIVE_UPLOAD_DIR", filepath.Join(appData, "uploads")),
 		PreviewDir:             env("GODRIVE_PREVIEW_DIR", filepath.Join(appData, "previews")),
+		SearchEngine:           env("GODRIVE_SEARCH_ENGINE", "bleve"),
+		SearchDir:              env("GODRIVE_SEARCH_DIR", filepath.Join(appData, "search")),
 		TrashDir:               env("GODRIVE_TRASH_DIR", filepath.Join(appData, "trash")),
 		BootstrapAdminUser:     env("GODRIVE_BOOTSTRAP_ADMIN_USER", "admin"),
 		BootstrapAdminPassword: os.Getenv("GODRIVE_BOOTSTRAP_ADMIN_PASSWORD"),
