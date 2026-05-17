@@ -51,7 +51,13 @@ func (s *Store) UpsertFileIndexEntry(ctx context.Context, entry FileIndexEntry) 
 	if err := upsertFileIndexSearchEntry(ctx, tx, rowID, entry); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if s.engine != nil {
+		_ = s.engine.IndexFile(ctx, entry.UserID, entry.Path, entry.Name, "")
+	}
+	return nil
 }
 
 func (s *Store) UpsertFileIndexEntries(ctx context.Context, entries []FileIndexEntry) error {
@@ -85,7 +91,15 @@ func (s *Store) UpsertFileIndexEntries(ctx context.Context, entries []FileIndexE
 			return err
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if s.engine != nil {
+		for _, entry := range entries {
+			_ = s.engine.IndexFile(ctx, entry.UserID, entry.Path, entry.Name, "")
+		}
+	}
+	return nil
 }
 
 func upsertFileIndexSearchEntry(ctx context.Context, execer fileIndexExecutor, rowID int64, entry FileIndexEntry) error {
@@ -131,7 +145,15 @@ func (s *Store) UpsertDocumentTextEntries(ctx context.Context, entries []Documen
 			return err
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if s.engine != nil {
+		for _, entry := range entries {
+			_ = s.engine.IndexFile(ctx, entry.UserID, entry.Path, entry.Name, entry.Content)
+		}
+	}
+	return nil
 }
 
 func (s *Store) DeleteDocumentText(ctx context.Context, userID int64, logical string) error {

@@ -5,11 +5,13 @@ import (
 	"errors"
 	"time"
 
+	"godrive/internal/search"
 	_ "modernc.org/sqlite"
 )
 
 type Store struct {
-	db *sql.DB
+	db     *sql.DB
+	engine search.Engine
 }
 
 type User struct {
@@ -115,6 +117,10 @@ func Open(path string) (*Store, error) {
 
 func (s *Store) Close() error {
 	return s.db.Close()
+}
+
+func (s *Store) SetSearchEngine(e search.Engine) {
+	s.engine = e
 }
 
 func (s *Store) DB() *sql.DB {
