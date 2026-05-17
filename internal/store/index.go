@@ -321,6 +321,20 @@ func (s *Store) ListFileIndexDirectories(ctx context.Context, userID int64) ([]F
 }
 
 func (s *Store) DeleteFileIndexEntriesNotSeen(ctx context.Context, userID int64, scanID string) (int64, error) {
+	if s.engine != nil {
+		rows, err := s.db.QueryContext(ctx,
+			`SELECT path FROM file_index WHERE user_id = ? AND last_seen_scan <> ?`,
+			userID, scanID)
+		if err == nil {
+			for rows.Next() {
+				var p string
+				if rows.Scan(&p) == nil {
+					_ = s.engine.Delete(ctx, userID, p)
+				}
+			}
+			_ = rows.Close()
+		}
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
@@ -367,6 +381,21 @@ func (s *Store) DeleteFileIndexEntriesNotSeen(ctx context.Context, userID int64,
 func (s *Store) DeleteFileIndexEntriesNotSeenUnder(ctx context.Context, userID int64, scanID string, logical string) (int64, error) {
 	if logical == "" || logical == "/" {
 		return s.DeleteFileIndexEntriesNotSeen(ctx, userID, scanID)
+	}
+	if s.engine != nil {
+		likePattern := escapeLikePattern(logical) + "/%"
+		rows, err := s.db.QueryContext(ctx,
+			`SELECT path FROM file_index WHERE user_id = ? AND (path = ? OR path LIKE ? ESCAPE '\') AND last_seen_scan <> ?`,
+			userID, logical, likePattern, scanID)
+		if err == nil {
+			for rows.Next() {
+				var p string
+				if rows.Scan(&p) == nil {
+					_ = s.engine.Delete(ctx, userID, p)
+				}
+			}
+			_ = rows.Close()
+		}
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -415,6 +444,9 @@ func (s *Store) DeleteFileIndexEntriesNotSeenUnder(ctx context.Context, userID i
 }
 
 func (s *Store) DeleteFileIndexPath(ctx context.Context, userID int64, logical string) (int64, error) {
+	if s.engine != nil {
+		_ = s.engine.DeletePrefix(ctx, userID, logical)
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
