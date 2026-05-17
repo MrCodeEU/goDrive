@@ -8,6 +8,11 @@ import (
 	"godrive/internal/store"
 )
 
+const (
+	apiKeyTokenPrefix = "gdk_"
+	apiKeyIDPrefix    = "key_"
+)
+
 func (s *Server) listAPIKeys(w http.ResponseWriter, r *http.Request, _ store.User, _ store.Session) {
 	keys, err := s.store.ListAPIKeys(r.Context())
 	if err != nil {
@@ -41,7 +46,7 @@ func (s *Server) createAPIKey(w http.ResponseWriter, r *http.Request, _ store.Us
 		writeError(w, http.StatusInternalServerError, "failed to generate token")
 		return
 	}
-	plaintext := "gdk_" + token
+	plaintext := apiKeyTokenPrefix + token
 
 	id, err := auth.RandomID(12)
 	if err != nil {
@@ -49,13 +54,12 @@ func (s *Server) createAPIKey(w http.ResponseWriter, r *http.Request, _ store.Us
 		return
 	}
 
-	key, err := s.store.CreateAPIKey(r.Context(), "key_"+id, req.UserID, req.Name, auth.HashToken(plaintext))
+	key, err := s.store.CreateAPIKey(r.Context(), apiKeyIDPrefix+id, req.UserID, req.Name, auth.HashToken(plaintext))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create API key")
 		return
 	}
 
-	// Token returned only here — never stored in plaintext.
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"api_key": key,
 		"token":   plaintext,

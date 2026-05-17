@@ -2049,8 +2049,8 @@
                 <article class="api-key-row" class:revoked={!!key.revoked_at}>
                   <div class="api-key-info">
                     <strong>{key.name}</strong>
-                    <span class="api-key-meta">{key.username} · created {new Date(key.created_at).toLocaleDateString()}{key.last_used_at ? ` · last used ${new Date(key.last_used_at).toLocaleDateString()}` : " · never used"}</span>
-                    {#if key.revoked_at}<span class="api-key-revoked">Revoked {new Date(key.revoked_at).toLocaleDateString()}</span>{/if}
+                    <span class="api-key-meta">{key.username} · created {formatDate(key.created_at)}{key.last_used_at ? ` · last used ${formatDate(key.last_used_at)}` : " · never used"}</span>
+                    {#if key.revoked_at}<span class="api-key-revoked">Revoked {formatDate(key.revoked_at)}</span>{/if}
                   </div>
                   {#if !key.revoked_at}
                     <button type="button" class="danger" on:click={() => revokeKey(key.id)}>Revoke</button>

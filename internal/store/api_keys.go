@@ -16,8 +16,6 @@ type APIKey struct {
 	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
 }
 
-// CreateAPIKey inserts a new key. tokenHash is auth.HashToken(plaintext).
-// Returns the stored key (without token plaintext).
 func (s *Store) CreateAPIKey(ctx context.Context, id string, userID int64, name, tokenHash string) (APIKey, error) {
 	now := nowString()
 	_, err := s.db.ExecContext(ctx, `
@@ -27,7 +25,11 @@ func (s *Store) CreateAPIKey(ctx context.Context, id string, userID int64, name,
 	if err != nil {
 		return APIKey{}, err
 	}
-	return s.GetAPIKey(ctx, id)
+	t, err := scanTime(now)
+	if err != nil {
+		return APIKey{}, err
+	}
+	return APIKey{ID: id, UserID: userID, Name: name, CreatedAt: t}, nil
 }
 
 func (s *Store) GetAPIKey(ctx context.Context, id string) (APIKey, error) {
@@ -46,6 +48,7 @@ func (s *Store) ListAPIKeys(ctx context.Context) ([]APIKey, error) {
 		FROM api_keys ak
 		JOIN users u ON u.id = ak.user_id
 		ORDER BY ak.created_at DESC
+		LIMIT 500
 	`)
 	if err != nil {
 		return nil, err
@@ -77,27 +80,39 @@ func (s *Store) RevokeAPIKey(ctx context.Context, id string) error {
 }
 
 // UserByAPIKey looks up the user for a valid (non-revoked) API key token hash.
-// Updates last_used_at as a best-effort side effect.
+// Updates last_used_at at most once per 5 minutes to reduce write pressure.
 func (s *Store) UserByAPIKey(ctx context.Context, tokenHash string) (User, error) {
+	var lastUsedAt sql.NullString
 	row := s.db.QueryRowContext(ctx, `
-		SELECT u.id, u.username, u.password_hash, u.is_admin, u.disabled, u.home_root, u.created_at, u.updated_at
+		SELECT u.id, u.username, u.password_hash, u.is_admin, u.disabled, u.home_root, u.created_at, u.updated_at,
+		       ak.last_used_at
 		FROM api_keys ak
 		JOIN users u ON u.id = ak.user_id
 		WHERE ak.token_hash = ? AND ak.revoked_at IS NULL AND u.disabled = 0
 	`, tokenHash)
 	var u User
 	var createdAt, updatedAt string
-	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.IsAdmin, &u.Disabled, &u.HomeRoot, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.IsAdmin, &u.Disabled, &u.HomeRoot, &createdAt, &updatedAt, &lastUsedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return User{}, ErrNotFound
+		}
 		return User{}, err
 	}
-	var err error
-	if u.CreatedAt, err = scanTime(createdAt); err != nil {
+	u, err := scanUserTimes(u, createdAt, updatedAt)
+	if err != nil {
 		return User{}, err
 	}
-	if u.UpdatedAt, err = scanTime(updatedAt); err != nil {
-		return User{}, err
+
+	// Only write last_used_at if it's stale by more than 5 minutes.
+	stale := true
+	if lastUsedAt.Valid {
+		if t, err := scanTime(lastUsedAt.String); err == nil {
+			stale = time.Since(t) > 5*time.Minute
+		}
 	}
-	_, _ = s.db.ExecContext(ctx, `UPDATE api_keys SET last_used_at = ? WHERE token_hash = ?`, nowString(), tokenHash)
+	if stale {
+		_, _ = s.db.ExecContext(ctx, `UPDATE api_keys SET last_used_at = ? WHERE token_hash = ?`, nowString(), tokenHash)
+	}
 	return u, nil
 }
 

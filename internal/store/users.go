@@ -145,3 +145,16 @@ func scanUser(scanner interface {
 	}
 	return user, nil
 }
+
+// scanUserTimes parses the createdAt/updatedAt strings into u and returns the updated value.
+// Used when user fields are scanned inline alongside other columns.
+func scanUserTimes(u User, createdAt, updatedAt string) (User, error) {
+	var err error
+	if u.CreatedAt, err = scanTime(createdAt); err != nil {
+		return User{}, err
+	}
+	if u.UpdatedAt, err = scanTime(updatedAt); err != nil {
+		return User{}, err
+	}
+	return u, nil
+}
