@@ -576,6 +576,7 @@ func (s *Server) indexEntryForPath(user store.User, physical string, logical str
 	return indexEntry, &store.DocumentTextEntry{
 		UserID:  user.ID,
 		Path:    logical,
+		Name:    indexEntry.Name,
 		Content: content,
 	}
 }

@@ -77,6 +77,7 @@ type FileIndexEntry struct {
 type DocumentTextEntry struct {
 	UserID  int64
 	Path    string
+	Name    string
 	Content string
 }
 
