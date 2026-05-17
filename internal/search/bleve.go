@@ -41,10 +41,10 @@ func buildMapping() *mapping.IndexMappingImpl {
 	// Register a custom "filename" analyzer that splits on non-letter characters
 	// (period, dash, underscore, digits etc.) so "report.txt" → ["report", "txt"].
 	// Applies lowercase + Porter stemming for English stemming support.
-	if err := im.AddCustomAnalyzer(filenameAnalyzerName, map[string]interface{}{
+	if err := im.AddCustomAnalyzer(filenameAnalyzerName, map[string]any{
 		"type":          custom.Name,
 		"tokenizer":     letter.Name,
-		"token_filters": []interface{}{lowercase.Name, en.StopName, porter.Name},
+		"token_filters": []any{lowercase.Name, en.StopName, porter.Name},
 	}); err != nil {
 		panic(fmt.Sprintf("bleve: register filename analyzer: %v", err))
 	}
@@ -115,7 +115,7 @@ func (e *BleveEngine) DeletePrefix(ctx context.Context, userID int64, pathPrefix
 	pathQ := bleve.NewDisjunctionQuery(exactQ, childQ)
 
 	req := bleve.NewSearchRequest(bleve.NewConjunctionQuery(userQ, pathQ))
-	req.Size = 10000
+	req.Size = 10000 // sufficient for personal-drive scale; paginate if needed for large deployments
 	req.Fields = []string{}
 
 	result, err := e.index.SearchInContext(ctx, req)
@@ -137,7 +137,7 @@ func (e *BleveEngine) DeleteAllForUser(ctx context.Context, userID int64) error 
 	userQ.SetField("UserID")
 
 	req := bleve.NewSearchRequest(userQ)
-	req.Size = 10000
+	req.Size = 10000 // sufficient for personal-drive scale; paginate if needed for large deployments
 	req.Fields = []string{}
 
 	result, err := e.index.SearchInContext(ctx, req)
@@ -199,6 +199,9 @@ func (e *BleveEngine) Search(ctx context.Context, userID int64, queryStr string,
 	out := make([]Result, 0, len(result.Hits))
 	for _, hit := range result.Hits {
 		path, _ := hit.Fields["Path"].(string)
+		if path == "" {
+			continue
+		}
 		out = append(out, Result{
 			UserID:  userID,
 			Path:    path,
