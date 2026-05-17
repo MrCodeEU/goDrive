@@ -48,12 +48,22 @@ func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) (store.Use
 		viaCookie = true
 	}
 
-	user, session, err := s.store.UserByValidSession(r.Context(), auth.HashToken(token), time.Now().UTC())
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, "authentication required")
-		return store.User{}, store.Session{}, false, false
+	tokenHash := auth.HashToken(token)
+	user, session, err := s.store.UserByValidSession(r.Context(), tokenHash, time.Now().UTC())
+	if err == nil {
+		return user, session, viaCookie, true
 	}
-	return user, session, viaCookie, true
+
+	// Fall back to API key auth (only for non-cookie bearer tokens).
+	if !viaCookie {
+		apiUser, apiErr := s.store.UserByAPIKey(r.Context(), tokenHash)
+		if apiErr == nil {
+			return apiUser, store.Session{}, false, true
+		}
+	}
+
+	writeError(w, http.StatusUnauthorized, "authentication required")
+	return store.User{}, store.Session{}, false, false
 }
 
 func bearerToken(r *http.Request) (string, bool) {

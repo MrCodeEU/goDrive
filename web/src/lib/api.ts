@@ -381,6 +381,33 @@ export async function clearPreviewCache() {
   });
 }
 
+export interface APIKey {
+  id: string;
+  user_id: number;
+  username: string;
+  name: string;
+  created_at: string;
+  last_used_at?: string;
+  revoked_at?: string;
+}
+
+export async function listAPIKeys() {
+  return api<{ api_keys: APIKey[] }>("/api/admin/api-keys");
+}
+
+export async function createAPIKey(user_id: number, name: string) {
+  return api<{ api_key: APIKey; token: string }>("/api/admin/api-keys", {
+    method: "POST",
+    body: JSON.stringify({ user_id, name }),
+  });
+}
+
+export async function revokeAPIKey(id: string) {
+  return api<{ status: string }>(`/api/admin/api-keys/${id}`, {
+    method: "DELETE",
+  });
+}
+
 export async function saveFileContent(path: string, content: string) {
   return api<{ path: string; modified_at: string }>(
     `/api/files/content?path=${encodeURIComponent(path)}`,

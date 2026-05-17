@@ -43,6 +43,10 @@
     trashThumbnailURL,
     updateAdminUser,
     uploadTus,
+    createAPIKey,
+    listAPIKeys,
+    revokeAPIKey,
+    type APIKey,
     type AdminJob,
     type AdminStats,
     type FileEntry,
@@ -168,6 +172,11 @@
   let adminPoll: ReturnType<typeof window.setInterval> | null = null;
   let newUser = emptyNewUser();
   let passwordReset: Record<number, string> = {};
+  let apiKeys: APIKey[] = [];
+  let newKeyName = "";
+  let newKeyUserID = 0;
+  let newKeyToken = "";
+  let apiKeyBusy = "";
 
   let fileEvents: AbortController | null = null;
   let liveRefreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -743,7 +752,7 @@
 
   async function openAdmin() {
     adminOpen = true;
-    await Promise.all([refreshAdmin(), refreshAdminUsers()]);
+    await Promise.all([refreshAdmin(), refreshAdminUsers(), refreshAPIKeys()]);
     startAdminPolling();
   }
 
@@ -869,6 +878,42 @@
       error = messageFromError(err);
     } finally {
       adminBusy = "";
+    }
+  }
+
+  async function refreshAPIKeys() {
+    try {
+      apiKeys = (await listAPIKeys()).api_keys ?? [];
+    } catch (err) {
+      error = messageFromError(err);
+    }
+  }
+
+  async function createNewAPIKey() {
+    if (!newKeyName.trim() || !newKeyUserID) return;
+    apiKeyBusy = "Creating…";
+    try {
+      const result = await createAPIKey(newKeyUserID, newKeyName.trim());
+      newKeyToken = result.token;
+      newKeyName = "";
+      newKeyUserID = 0;
+      await refreshAPIKeys();
+    } catch (err) {
+      error = messageFromError(err);
+    } finally {
+      apiKeyBusy = "";
+    }
+  }
+
+  async function revokeKey(id: string) {
+    apiKeyBusy = "Revoking…";
+    try {
+      await revokeAPIKey(id);
+      await refreshAPIKeys();
+    } catch (err) {
+      error = messageFromError(err);
+    } finally {
+      apiKeyBusy = "";
     }
   }
 
@@ -1986,6 +2031,45 @@
                 <button type="button" on:click={createUserFromAdmin}>Create</button>
               </article>
             </div>
+          </section>
+          <section class="api-keys-section">
+            <h3>API Keys</h3>
+            <p class="api-keys-hint">API keys allow external apps to authenticate via <code>Authorization: Bearer &lt;token&gt;</code>. Tokens are shown only once at creation.</p>
+            {#if apiKeyBusy}<p>{apiKeyBusy}</p>{/if}
+            {#if newKeyToken}
+              <div class="api-key-token-reveal">
+                <strong>Copy this token — it will not be shown again:</strong>
+                <code class="api-key-token">{newKeyToken}</code>
+                <button type="button" on:click={() => { navigator.clipboard.writeText(newKeyToken); }}>Copy</button>
+                <button type="button" on:click={() => (newKeyToken = "")}>Dismiss</button>
+              </div>
+            {/if}
+            <div class="api-key-list">
+              {#each apiKeys as key (key.id)}
+                <article class="api-key-row" class:revoked={!!key.revoked_at}>
+                  <div class="api-key-info">
+                    <strong>{key.name}</strong>
+                    <span class="api-key-meta">{key.username} · created {new Date(key.created_at).toLocaleDateString()}{key.last_used_at ? ` · last used ${new Date(key.last_used_at).toLocaleDateString()}` : " · never used"}</span>
+                    {#if key.revoked_at}<span class="api-key-revoked">Revoked {new Date(key.revoked_at).toLocaleDateString()}</span>{/if}
+                  </div>
+                  {#if !key.revoked_at}
+                    <button type="button" class="danger" on:click={() => revokeKey(key.id)}>Revoke</button>
+                  {/if}
+                </article>
+              {:else}
+                <p class="api-keys-empty">No API keys yet.</p>
+              {/each}
+            </div>
+            <article class="new-api-key">
+              <select bind:value={newKeyUserID}>
+                <option value={0} disabled>Select user…</option>
+                {#each adminUsers as u (u.id)}
+                  <option value={u.id}>{u.username}</option>
+                {/each}
+              </select>
+              <input placeholder="Key name (e.g. My Organizer App)" bind:value={newKeyName} />
+              <button type="button" on:click={createNewAPIKey} disabled={!newKeyName.trim() || !newKeyUserID}>Create</button>
+            </article>
           </section>
         </section>
       </div>

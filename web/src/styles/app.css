@@ -742,6 +742,30 @@ button[type=submit]:hover:not(:disabled),
 }
 .user-list button:hover { opacity: .85; }
 
+/* ── API Keys ── */
+.api-keys-section { padding: 0 20px 20px; }
+.api-keys-section h3 { font-size: 13px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: .06em; margin: 16px 0 8px; }
+.api-keys-hint { font-size: 12px; color: var(--text-3); margin-bottom: 12px; }
+.api-keys-hint code { background: var(--bg-3); padding: 1px 4px; border-radius: 3px; font-size: 11.5px; }
+.api-key-token-reveal { background: var(--bg-3); border: 1px solid var(--accent); border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px; }
+.api-key-token-reveal strong { font-size: 12.5px; color: var(--text-1); }
+.api-key-token { font-family: monospace; font-size: 12px; color: var(--accent); word-break: break-all; background: var(--bg-2); padding: 6px 8px; border-radius: var(--radius-sm); }
+.api-key-token-reveal button { align-self: flex-start; padding: 4px 10px; background: var(--accent); border: none; border-radius: var(--radius-sm); color: #fff; font-size: 12px; font-weight: 600; }
+.api-key-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.api-key-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--bg-3); border: 1px solid var(--border); border-radius: var(--radius-md); }
+.api-key-row.revoked { opacity: .5; }
+.api-key-info { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.api-key-info strong { font-size: 13px; color: var(--text-1); }
+.api-key-meta { font-size: 11.5px; color: var(--text-3); }
+.api-key-revoked { font-size: 11px; color: #e55; }
+.api-key-row button.danger { padding: 4px 10px; background: transparent; border: 1px solid #c44; border-radius: var(--radius-sm); color: #e55; font-size: 12px; font-weight: 600; transition: background .12s; }
+.api-key-row button.danger:hover { background: rgba(200,50,50,.12); }
+.new-api-key { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 10px 12px; background: var(--bg-3); border: 1px solid var(--border); border-radius: var(--radius-md); }
+.new-api-key select, .new-api-key input { flex: 1; min-width: 140px; padding: 5px 8px; background: var(--bg-2); border: 1px solid var(--border-2); border-radius: var(--radius-sm); color: var(--text-1); font-size: 12.5px; }
+.new-api-key button { padding: 5px 12px; background: var(--accent); border: none; border-radius: var(--radius-sm); color: #fff; font-size: 12.5px; font-weight: 600; }
+.new-api-key button:disabled { opacity: .45; }
+.api-keys-empty { font-size: 12px; color: var(--text-3); padding: 8px 0; }
+
 /* ── Upload queue ── */
 .upload-queue {
   position: fixed; bottom: 0; right: 0; z-index: 50;

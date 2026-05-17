@@ -117,6 +117,10 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/admin/jobs/preview-warmup", s.withAdmin(s.startPreviewWarmup))
 	mux.HandleFunc("DELETE /api/admin/preview-cache", s.withAdmin(s.clearPreviewCache))
 
+	mux.HandleFunc("GET /api/admin/api-keys", s.withAdmin(s.listAPIKeys))
+	mux.HandleFunc("POST /api/admin/api-keys", s.withAdmin(s.createAPIKey))
+	mux.HandleFunc("DELETE /api/admin/api-keys/{id}", s.withAdmin(s.revokeAPIKey))
+
 	mux.HandleFunc("GET /api/webhooks", s.withAdmin(s.listWebhooks))
 	mux.HandleFunc("POST /api/webhooks", s.withAdmin(s.createWebhook))
 	mux.HandleFunc("DELETE /api/webhooks/{id}", s.withAdmin(s.deleteWebhook))
