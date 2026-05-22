@@ -1,0 +1,5 @@
+[tools]
+go = "1.26.2"
+java = "temurin-21"
+node = "22"
+flutter = "3.44.0"

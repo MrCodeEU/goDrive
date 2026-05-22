@@ -1,0 +1,6 @@
+# Copy to mobile/android/key.properties for local release builds.
+# Never commit the real key.properties file or keystore.
+storeFile=/absolute/path/to/godrive-upload.jks
+storePassword=change-me
+keyAlias=upload
+keyPassword=change-me

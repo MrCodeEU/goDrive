@@ -1,0 +1,209 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      upload_google_play:
+        description: Upload Android App Bundle to Google Play internal testing
+        required: false
+        type: boolean
+        default: false
+      upload_testflight:
+        description: Upload signed iOS IPA to TestFlight
+        required: false
+        type: boolean
+        default: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    name: Android Release
+    runs-on: ubuntu-latest
+    env:
+      HAS_ANDROID_SIGNING: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_PASSWORD != '' }}
+      HAS_GOOGLE_PLAY: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.0
+          cache: true
+
+      - name: Cache pub dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ hashFiles('mobile/pubspec.lock') }}
+          restore-keys: pub-
+
+      - name: Get dependencies
+        working-directory: mobile
+        run: flutter pub get
+
+      - name: Decode Android release keystore
+        if: env.HAS_ANDROID_SIGNING == 'true'
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/godrive-release.jks"
+          {
+            echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/godrive-release.jks"
+            echo "ANDROID_KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}"
+            echo "ANDROID_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}"
+            echo "ANDROID_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}"
+          } >> "$GITHUB_ENV"
+
+      - name: Create dry-run Android keystore
+        if: env.HAS_ANDROID_SIGNING != 'true'
+        run: |
+          keytool -genkeypair \
+            -keystore "$RUNNER_TEMP/godrive-dryrun.jks" \
+            -storepass dryrunpassword \
+            -keypass dryrunpassword \
+            -alias dryrun \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 30 \
+            -dname "CN=goDrive Dry Run,O=goDrive,C=AT"
+          {
+            echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/godrive-dryrun.jks"
+            echo "ANDROID_KEYSTORE_PASSWORD=dryrunpassword"
+            echo "ANDROID_KEY_ALIAS=dryrun"
+            echo "ANDROID_KEY_PASSWORD=dryrunpassword"
+          } >> "$GITHUB_ENV"
+
+      - name: Build Android App Bundle
+        working-directory: mobile
+        run: flutter build appbundle --release --build-number "$GITHUB_RUN_NUMBER"
+
+      - name: Build Android APK
+        working-directory: mobile
+        run: flutter build apk --release --build-number "$GITHUB_RUN_NUMBER"
+
+      - name: Collect Android artifacts
+        run: |
+          mkdir -p dist
+          SHORT_SHA="${GITHUB_SHA::7}"
+          RELEASE_NAME="${GITHUB_REF_NAME:-manual-$GITHUB_RUN_NUMBER}"
+          cp mobile/build/app/outputs/bundle/release/app-release.aab "dist/godrive-${RELEASE_NAME}-${SHORT_SHA}.aab"
+          cp mobile/build/app/outputs/flutter-apk/app-release.apk "dist/godrive-${RELEASE_NAME}-${SHORT_SHA}.apk"
+
+      - name: Upload Android workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: godrive-android-release
+          path: dist/*
+          retention-days: 14
+
+      - name: Upload Android App Bundle to Google Play internal testing
+        if: github.event_name == 'workflow_dispatch' && inputs.upload_google_play && env.HAS_ANDROID_SIGNING == 'true' && env.HAS_GOOGLE_PLAY == 'true'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: eu.mljr.godrive
+          releaseFiles: mobile/build/app/outputs/bundle/release/app-release.aab
+          track: internal
+          status: draft
+
+      - name: Create or update GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes
+          fi
+
+  ios:
+    name: iOS Release Dry Run
+    runs-on: macos-latest
+    env:
+      HAS_TESTFLIGHT_UPLOAD: ${{ secrets.APPSTORE_API_PRIVATE_KEY != '' && secrets.APPSTORE_API_KEY_ID != '' && secrets.APPSTORE_ISSUER_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.0
+          cache: true
+
+      - name: Cache pub dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ hashFiles('mobile/pubspec.lock') }}
+          restore-keys: pub-
+
+      - name: Add Share Extension target
+        run: |
+          gem install xcodeproj --no-document
+          ruby scripts/add_share_extension.rb
+
+      - name: Build iOS app unsigned
+        working-directory: mobile
+        run: |
+          flutter pub get
+          flutter build ios --release --no-codesign --build-number "$GITHUB_RUN_NUMBER"
+
+      - name: Build Share Extension unsigned
+        working-directory: mobile/ios
+        run: |
+          xcodebuild \
+            -project Runner.xcodeproj \
+            -target ShareExtension \
+            -configuration Release \
+            -sdk iphoneos \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CONFIGURATION_BUILD_DIR="$GITHUB_WORKSPACE/mobile/build/ios/iphoneos" \
+            build
+
+      - name: Package unsigned iOS dry-run IPA
+        run: |
+          APP="mobile/build/ios/iphoneos/Runner.app"
+          EXT="mobile/build/ios/iphoneos/ShareExtension.appex"
+          PLUGINS="$APP/PlugIns"
+          mkdir -p "$PLUGINS"
+          if [ -d "$EXT" ]; then
+            cp -r "$EXT" "$PLUGINS/"
+          fi
+          cd mobile/build/ios/iphoneos
+          rm -rf Payload godrive-unsigned.ipa
+          mkdir -p Payload
+          cp -r Runner.app Payload/
+          zip -r godrive-unsigned.ipa Payload/
+
+      - name: Upload iOS dry-run artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: godrive-ios-unsigned-dry-run
+          path: mobile/build/ios/iphoneos/godrive-unsigned.ipa
+          retention-days: 14
+
+      - name: Explain skipped TestFlight upload
+        if: github.event_name != 'workflow_dispatch' || !inputs.upload_testflight || env.HAS_TESTFLIGHT_UPLOAD != 'true'
+        run: |
+          echo "TestFlight upload skipped."
+          echo "A signed IPA workflow still needs Apple distribution certificate and provisioning profile secrets."
+
+      - name: Stop before TestFlight upload until signed IPA export exists
+        if: github.event_name == 'workflow_dispatch' && inputs.upload_testflight && env.HAS_TESTFLIGHT_UPLOAD == 'true'
+        run: |
+          echo "TestFlight credentials are present, but this workflow only builds an unsigned dry-run IPA today."
+          echo "Add Apple distribution certificate and provisioning profile handling before enabling upload."
+          exit 1
