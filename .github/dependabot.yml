@@ -12,10 +12,11 @@ updates:
         update-types:
           - minor
           - patch
-    ignore:
-      - dependency-name: "*"
+      github-actions-major:
+        patterns:
+          - "*"
         update-types:
-          - version-update:semver-major
+          - major
 
   - package-ecosystem: gomod
     directory: /
@@ -47,10 +48,11 @@ updates:
         update-types:
           - minor
           - patch
-    ignore:
-      - dependency-name: "*"
+      web-major:
+        patterns:
+          - "*"
         update-types:
-          - version-update:semver-major
+          - major
 
   - package-ecosystem: pub
     directory: /mobile
@@ -72,10 +74,11 @@ updates:
         update-types:
           - minor
           - patch
-    ignore:
-      - dependency-name: "*"
+      mobile-major:
+        patterns:
+          - "*"
         update-types:
-          - version-update:semver-major
+          - major
 
   - package-ecosystem: docker
     directory: /
@@ -89,7 +92,8 @@ updates:
         update-types:
           - minor
           - patch
-    ignore:
-      - dependency-name: "*"
+      docker-base-images-major:
+        patterns:
+          - "*"
         update-types:
-          - version-update:semver-major
+          - major
