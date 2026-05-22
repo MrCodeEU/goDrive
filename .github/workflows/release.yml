@@ -101,7 +101,7 @@ jobs:
           cp mobile/build/app/outputs/flutter-apk/app-release.apk "dist/godrive-${RELEASE_NAME}-${SHORT_SHA}.apk"
 
       - name: Upload Android workflow artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: godrive-android-release
           path: dist/*
@@ -189,7 +189,7 @@ jobs:
           zip -r godrive-unsigned.ipa Payload/
 
       - name: Upload iOS dry-run artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: godrive-ios-unsigned-dry-run
           path: mobile/build/ios/iphoneos/godrive-unsigned.ipa
