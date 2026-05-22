@@ -3,16 +3,16 @@ module godrive
 go 1.26.2
 
 require (
+	github.com/blevesearch/bleve/v2 v2.6.0
 	github.com/fsnotify/fsnotify v1.9.0
 	golang.org/x/crypto v0.51.0
-	golang.org/x/net v0.54.0
+	golang.org/x/net v0.55.0
 	modernc.org/sqlite v1.50.0
 )
 
 require (
 	github.com/RoaringBitmap/roaring/v2 v2.14.5 // indirect
 	github.com/bits-and-blooms/bitset v1.24.2 // indirect
-	github.com/blevesearch/bleve/v2 v2.6.0 // indirect
 	github.com/blevesearch/bleve_index_api v1.3.11 // indirect
 	github.com/blevesearch/geo v0.2.5 // indirect
 	github.com/blevesearch/go-faiss v1.1.0 // indirect
@@ -40,7 +40,7 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	go.etcd.io/bbolt v1.4.0 // indirect
-	golang.org/x/sys v0.44.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
 	modernc.org/libc v1.72.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
