@@ -12,6 +12,9 @@ const (
 	loginWindow       = 5 * time.Minute
 	loginBlockFor     = 15 * time.Minute
 	loginCleanupEvery = time.Hour
+
+	authScopePassword = "password"
+	authScopeToken    = "token"
 )
 
 type loginBucket struct {
@@ -33,7 +36,7 @@ func newLoginLimiter() *loginLimiter {
 	}
 }
 
-// allow returns false if the IP is currently blocked.
+// allow returns false if the IP/scope is currently blocked.
 func (l *loginLimiter) allow(ip string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -51,7 +54,7 @@ func (l *loginLimiter) allow(ip string) bool {
 	return true
 }
 
-// record records a failed login attempt and returns whether the IP is now blocked.
+// record records a failed authentication attempt and returns whether the key is now blocked.
 func (l *loginLimiter) record(ip string) (blocked bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -81,6 +84,10 @@ func (l *loginLimiter) reset(ip string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	delete(l.entries, ip)
+}
+
+func authLimitKey(scope, ip string) string {
+	return scope + "\x00" + ip
 }
 
 func (l *loginLimiter) maybeClean(now time.Time) {

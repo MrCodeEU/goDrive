@@ -30,6 +30,8 @@ class ApiClient {
     return params != null ? uri.replace(queryParameters: params) : uri;
   }
 
+  Uri eventsUri() => _uri('/api/events');
+
   Future<Map<String, dynamic>> _parseResponse(http.Response resp) async {
     if (resp.statusCode >= 200 && resp.statusCode < 300) {
       if (resp.body.isEmpty) return {};
@@ -151,11 +153,31 @@ class ApiClient {
     return TextPreview.fromJson(body);
   }
 
+  Future<void> saveFileContent(String path, String content) async {
+    final resp = await http.patch(
+      _uri('/api/files/content', {'path': path}),
+      headers: {
+        ..._headers,
+        'Content-Type': 'text/plain; charset=utf-8',
+      },
+      body: content,
+    );
+    await _parseResponse(resp);
+  }
+
+  Future<ExifData> fileExif(String path) async {
+    final body = await _get('/api/files/exif', {'path': path});
+    return ExifData.fromJson(body);
+  }
+
   String downloadUrl(String path) =>
       '${_uri('/api/files/download', {'path': path})}';
 
   String thumbnailUrl(String path, int size) =>
       '${_uri('/api/files/thumbnail', {'path': path, 'size': '$size'})}';
+
+  String trashThumbnailUrl(String id, int size) =>
+      '${_uri('/api/trash/$id/thumbnail', {'size': '$size'})}';
 
   String rawFileUrl(String path) => '${_uri('/api/files/raw', {'path': path})}';
 
@@ -237,8 +259,15 @@ class ApiClient {
     await _post('/api/admin/users/$id/password', {'password': password});
   }
 
-  Future<AdminJob> startReindex() async {
-    final body = await _post('/api/admin/jobs/reindex', {});
+  Future<AdminJob> startReindex({String? username, String? path}) async {
+    final scoped = username != null &&
+        username.trim().isNotEmpty &&
+        path != null &&
+        path.trim().isNotEmpty;
+    final body = await _post('/api/admin/jobs/reindex', {
+      if (scoped) 'username': username.trim(),
+      if (scoped) 'path': path.trim(),
+    });
     return AdminJob.fromJson(body['job'] as Map<String, dynamic>);
   }
 
@@ -253,7 +282,68 @@ class ApiClient {
     return job != null ? AdminJob.fromJson(job as Map<String, dynamic>) : null;
   }
 
+  Future<AdminJob> cancelAdminJob() async {
+    final body = await _post('/api/admin/jobs/cancel', {});
+    return AdminJob.fromJson(body['job'] as Map<String, dynamic>);
+  }
+
   Future<void> clearPreviewCache() async {
     await _delete('/api/admin/preview-cache');
+  }
+
+  Future<List<APIKey>> listAPIKeys() async {
+    final body = await _get('/api/admin/api-keys');
+    return (body['api_keys'] as List<dynamic>)
+        .map((e) => APIKey.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<(APIKey key, String token)> createAPIKey({
+    required int userId,
+    required String name,
+  }) async {
+    final body = await _post('/api/admin/api-keys', {
+      'user_id': userId,
+      'name': name,
+    });
+    return (
+      APIKey.fromJson(body['api_key'] as Map<String, dynamic>),
+      body['token'] as String,
+    );
+  }
+
+  Future<void> revokeAPIKey(String id) async {
+    await _delete('/api/admin/api-keys/$id');
+  }
+
+  Future<List<Webhook>> listWebhooks() async {
+    final body = await _get('/api/webhooks');
+    return (body['webhooks'] as List<dynamic>)
+        .map((e) => Webhook.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<(Webhook webhook, String secret)> createWebhook({
+    required String url,
+    required List<String> events,
+    required String description,
+  }) async {
+    final body = await _post('/api/webhooks', {
+      'url': url,
+      'events': events,
+      'description': description,
+    });
+    return (
+      Webhook.fromJson(body['webhook'] as Map<String, dynamic>),
+      body['secret'] as String,
+    );
+  }
+
+  Future<void> deleteWebhook(String id) async {
+    await _delete('/api/webhooks/$id');
+  }
+
+  Future<void> testWebhook(String id) async {
+    await _post('/api/webhooks/$id/test', {});
   }
 }

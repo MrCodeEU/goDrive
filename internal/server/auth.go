@@ -37,6 +37,7 @@ func (s *Server) withAdmin(next authedHandler) http.HandlerFunc {
 }
 
 func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) (store.User, store.Session, bool, bool) {
+	ip := clientIP(r)
 	token, viaCookie := bearerToken(r)
 	if token == "" {
 		cookie, err := r.Cookie(s.cfg.SessionCookieName)
@@ -48,9 +49,16 @@ func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) (store.Use
 		viaCookie = true
 	}
 
+	limitKey := authLimitKey(authScopeToken, ip)
+	if !s.loginLimit.allow(limitKey) {
+		writeError(w, http.StatusTooManyRequests, "too many failed authentication attempts, try again later")
+		return store.User{}, store.Session{}, false, false
+	}
+
 	tokenHash := auth.HashToken(token)
 	user, session, err := s.store.UserByValidSession(r.Context(), tokenHash, time.Now().UTC())
 	if err == nil {
+		s.loginLimit.reset(limitKey)
 		return user, session, viaCookie, true
 	}
 
@@ -58,10 +66,12 @@ func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) (store.Use
 	if !viaCookie {
 		apiUser, apiErr := s.store.UserByAPIKey(r.Context(), tokenHash)
 		if apiErr == nil {
+			s.loginLimit.reset(limitKey)
 			return apiUser, store.Session{}, false, true
 		}
 	}
 
+	s.loginLimit.record(limitKey)
 	writeError(w, http.StatusUnauthorized, "authentication required")
 	return store.User{}, store.Session{}, false, false
 }
@@ -96,8 +106,8 @@ func isStateChanging(method string) bool {
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
-	ip := clientIP(r)
-	if !s.loginLimit.allow(ip) {
+	limitKey := authLimitKey(authScopePassword, clientIP(r))
+	if !s.loginLimit.allow(limitKey) {
 		writeError(w, http.StatusTooManyRequests, "too many failed login attempts, try again later")
 		return
 	}
@@ -113,20 +123,20 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 
 	user, err := s.store.GetUserByUsername(r.Context(), req.Username)
 	if err != nil || user.Disabled {
-		s.loginLimit.record(ip)
+		s.loginLimit.record(limitKey)
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 	if err := auth.VerifyPassword(req.Password, user.PasswordHash); err != nil {
 		if errors.Is(err, auth.ErrPasswordMismatch) || errors.Is(err, auth.ErrInvalidHash) {
-			s.loginLimit.record(ip)
+			s.loginLimit.record(limitKey)
 			writeError(w, http.StatusUnauthorized, "invalid credentials")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to verify password")
 		return
 	}
-	s.loginLimit.reset(ip)
+	s.loginLimit.reset(limitKey)
 
 	sessionToken, err := auth.RandomToken()
 	if err != nil {
@@ -159,7 +169,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		Expires:  expiresAt,
 		HttpOnly: true,
 		Secure:   s.cfg.CookieSecure,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: cookieSameSiteMode(s.cfg.CookieSameSite),
 	})
 	http.SetCookie(w, &http.Cookie{
 		Name:     s.cfg.CSRFCookieName,
@@ -168,7 +178,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		Expires:  expiresAt,
 		HttpOnly: false,
 		Secure:   s.cfg.CookieSecure,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: cookieSameSiteMode(s.cfg.CookieSameSite),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -199,6 +209,17 @@ func clearCookie(w http.ResponseWriter, name string, secure bool) {
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   secure,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 	})
+}
+
+func cookieSameSiteMode(value string) http.SameSite {
+	switch value {
+	case "lax":
+		return http.SameSiteLaxMode
+	case "none":
+		return http.SameSiteNoneMode
+	default:
+		return http.SameSiteStrictMode
+	}
 }

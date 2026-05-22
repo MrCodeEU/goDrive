@@ -86,6 +86,80 @@ func TestParseOptionalDuration(t *testing.T) {
 	}
 }
 
+func TestParseCookieSameSite(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		raw     string
+		want    string
+		wantErr bool
+	}{
+		{raw: "", want: "strict"},
+		{raw: "strict", want: "strict"},
+		{raw: "Lax", want: "lax"},
+		{raw: "none", want: "none"},
+		{raw: "invalid", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.raw, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := parseCookieSameSite(tt.raw)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tt.want {
+				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadRejectsSameSiteNoneWithoutSecureCookies(t *testing.T) {
+	configureLoadDirs(t)
+	t.Setenv("GODRIVE_COOKIE_SAMESITE", "none")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected SameSite=None without secure cookies to fail")
+	}
+}
+
+func TestLoadEnablesHSTSWhenCookieSecure(t *testing.T) {
+	configureLoadDirs(t)
+	t.Setenv("GODRIVE_COOKIE_SECURE", "true")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.CookieSecure {
+		t.Fatal("CookieSecure = false, want true")
+	}
+	if !cfg.HSTS {
+		t.Fatal("HSTS = false, want true when secure cookies are enabled")
+	}
+}
+
+func TestLoadEnablesExplicitHSTS(t *testing.T) {
+	configureLoadDirs(t)
+	t.Setenv("GODRIVE_HSTS", "true")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.HSTS {
+		t.Fatal("HSTS = false, want true")
+	}
+}
+
 func TestValidateStorageLayoutRejectsOverlappingAppDataAndDataRoot(t *testing.T) {
 	t.Parallel()
 
@@ -138,4 +212,18 @@ func validStorageConfig(root string) Config {
 		DatabasePath:       filepath.Join(appData, "godrive.sqlite"),
 		BootstrapAdminRoot: filepath.Join(dataRoot, "admin"),
 	}
+}
+
+func configureLoadDirs(t *testing.T) {
+	t.Helper()
+	root := t.TempDir()
+	dataRoot := filepath.Join(root, "data")
+	appData := filepath.Join(root, "appdata")
+	t.Setenv("GODRIVE_DATA_ROOT", dataRoot)
+	t.Setenv("GODRIVE_APPDATA_DIR", appData)
+	t.Setenv("GODRIVE_DB_PATH", filepath.Join(appData, "godrive.sqlite"))
+	t.Setenv("GODRIVE_UPLOAD_DIR", filepath.Join(appData, "uploads"))
+	t.Setenv("GODRIVE_PREVIEW_DIR", filepath.Join(appData, "previews"))
+	t.Setenv("GODRIVE_TRASH_DIR", filepath.Join(appData, "trash"))
+	t.Setenv("GODRIVE_BOOTSTRAP_ADMIN_ROOT", filepath.Join(dataRoot, "admin"))
 }

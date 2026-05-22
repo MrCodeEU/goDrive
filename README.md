@@ -128,6 +128,8 @@ Events: `upload.complete`, `file.moved`, `file.deleted`, `file.restored`.
 
 Empty `events` array = subscribe to all events.
 
+Webhook targets must use HTTPS and public IP ranges by default. For trusted LAN automation behind a reverse proxy, set `GODRIVE_WEBHOOK_ALLOW_HTTP=true` and/or `GODRIVE_WEBHOOK_ALLOW_PRIVATE=true` intentionally; do not enable these for a public demo instance.
+
 Test a subscription:
 
 ```sh
@@ -149,6 +151,19 @@ godrive admin create --username admin --password 'change-me' --root ./var/data/a
 godrive admin reset-password --username admin --password 'new-password'
 ```
 
+## Security Checks
+
+The GitHub `Security` workflow runs Go vulnerability checks, npm audit, OSV lockfile scans for npm/Pub dependencies, and an Anchore/Grype scan of the Docker image. Dependabot is configured for GitHub Actions, Go modules, npm, Pub, and Docker base images.
+
+Please report suspected vulnerabilities privately. See [SECURITY.md](SECURITY.md).
+
+Local release checks:
+
+```sh
+make security        # govulncheck, npm audit, OSV lockfile scan
+make security-docker # Docker build + Grype image scan
+```
+
 ## Environment Variables
 
 | Variable | Default | Description |
@@ -162,6 +177,8 @@ godrive admin reset-password --username admin --password 'new-password'
 | `GODRIVE_BOOTSTRAP_ADMIN_ROOT` | `{data}/admin` | First-boot admin home root |
 | `GODRIVE_SESSION_TTL` | `720h` | Session lifetime |
 | `GODRIVE_COOKIE_SECURE` | `false` | Set `true` behind HTTPS |
+| `GODRIVE_COOKIE_SAMESITE` | `strict` | Browser cookie SameSite policy: `strict`, `lax`, or `none`. `none` requires `GODRIVE_COOKIE_SECURE=true`. |
+| `GODRIVE_HSTS` | `false` | Send `Strict-Transport-Security: max-age=31536000`. Automatically enabled when `GODRIVE_COOKIE_SECURE=true`; enable explicitly when HTTPS is terminated by a trusted reverse proxy and secure cookies are handled elsewhere. |
 | `GODRIVE_ENABLE_WATCHER` | `true` | fsnotify watcher for external changes |
 | `GODRIVE_RECONCILE_INTERVAL` | `24h` | Full reconciliation scan interval (`0` disables) |
 | `GODRIVE_UPLOAD_TTL` | `48h` | Incomplete TUS upload expiry (`0` disables cleanup) |
@@ -171,6 +188,8 @@ godrive admin reset-password --username admin --password 'new-password'
 | `GODRIVE_UPLOAD_DIR` | `{appdata}/uploads` | TUS staging area |
 | `GODRIVE_TRASH_DIR` | `{appdata}/trash` | Trash storage (durable — back up) |
 | `GODRIVE_MAX_UPLOAD_BYTES` | `0` | Max declared TUS upload size in bytes (`0` = unlimited) |
+| `GODRIVE_WEBHOOK_ALLOW_HTTP` | `false` | Allow non-HTTPS webhook URLs. Keep `false` for internet-facing deployments; set `true` only for trusted local networks. |
+| `GODRIVE_WEBHOOK_ALLOW_PRIVATE` | `false` | Allow webhook delivery to private, loopback, link-local, and other non-public IP ranges. Useful for LAN automation, but unsafe for public demo instances. |
 | `GODRIVE_DEV_LATENCY` | _(none)_ | Inject fake API latency, e.g. `10ms-25ms` |
 
 ## Volume Categories (Backup Guide)
@@ -227,11 +246,13 @@ DELETE /api/webhooks/{id}
 POST   /api/webhooks/{id}/test
 ```
 
-Bearer token auth skips CSRF. Cookie auth requires `X-CSRF-Token` on mutating requests.
+Bearer token auth skips CSRF. Cookie auth uses `SameSite=Strict` by default and requires `X-CSRF-Token` on mutating requests. The session cookie is `HttpOnly`; the CSRF cookie remains readable by the browser client so it can echo the token in the request header.
 
 ```text
 GET/PUT/DELETE/PROPFIND/...  /dav/{path}   WebDAV mount (per-user home root)
 ```
+
+WebDAV supports Basic Auth for native clients such as Finder, iOS Files, and rclone. Bearer tokens also work. Browser cookie auth is accepted for WebDAV reads, but mutating WebDAV methods require `X-CSRF-Token`; Basic/Bearer auth is recommended for WebDAV clients. Repeated failed password and token authentication attempts are rate-limited per client IP.
 
 ## Quality Gate
 
@@ -252,5 +273,6 @@ make mobile-test    # Flutter tests
 
 Before putting real data behind the server, run the release gates:
 
+- [Feature support matrix](docs/feature-support.md)
 - [Security audit plan](docs/security-audit.md)
 - [Manual test plan](docs/manual-test-plan.md)

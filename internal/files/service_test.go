@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"godrive/internal/store"
@@ -271,6 +272,111 @@ func TestFinalizeUploadRejectsInvalidFilename(t *testing.T) {
 
 	if _, err := svc.FinalizeUpload(user, "/tmp/fake", "/", "../../escape.txt"); !errors.Is(err, ErrInvalidPath) {
 		t.Fatalf("FinalizeUpload traversal err = %v, want ErrInvalidPath", err)
+	}
+}
+
+func TestWriteContentReplacesExistingFile(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	st := openTestStore(t)
+	svc := NewService(t.TempDir(), st)
+
+	user, err := st.CreateUser(context.Background(), store.User{
+		Username:     "writer",
+		PasswordHash: "hash",
+		HomeRoot:     root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	target := filepath.Join(root, "note.txt")
+	if err := os.WriteFile(target, []byte("old"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.WriteContent(user, "/note.txt", strings.NewReader("new content"), 32); err != nil {
+		t.Fatalf("WriteContent: %v", err)
+	}
+	content, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "new content" {
+		t.Fatalf("content = %q, want replacement", string(content))
+	}
+}
+
+func TestWriteContentRejectsOversizedBodyWithoutTruncating(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	st := openTestStore(t)
+	svc := NewService(t.TempDir(), st)
+
+	user, err := st.CreateUser(context.Background(), store.User{
+		Username:     "limit",
+		PasswordHash: "hash",
+		HomeRoot:     root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	target := filepath.Join(root, "note.txt")
+	if err := os.WriteFile(target, []byte("original"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	err = svc.WriteContent(user, "/note.txt", strings.NewReader("123456"), 5)
+	if !errors.Is(err, ErrContentTooLarge) {
+		t.Fatalf("WriteContent oversized err = %v, want ErrContentTooLarge", err)
+	}
+	content, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "original" {
+		t.Fatalf("content = %q, want original content preserved", string(content))
+	}
+}
+
+func TestWriteContentRejectsSymlinkEscape(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	outside := t.TempDir()
+	st := openTestStore(t)
+	svc := NewService(t.TempDir(), st)
+
+	user, err := st.CreateUser(context.Background(), store.User{
+		Username:     "escape",
+		PasswordHash: "hash",
+		HomeRoot:     root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	secret := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(secret, []byte("secret"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(root, "link.txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	err = svc.WriteContent(user, "/link.txt", strings.NewReader("replacement"), 64)
+	if !errors.Is(err, ErrEscapesRoot) {
+		t.Fatalf("WriteContent symlink escape err = %v, want ErrEscapesRoot", err)
+	}
+	content, err := os.ReadFile(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "secret" {
+		t.Fatalf("outside content = %q, want unchanged", string(content))
 	}
 }
 

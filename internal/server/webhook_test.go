@@ -30,7 +30,10 @@ func newWebhookServer(t *testing.T) (*Server, *store.Store) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := New(config.Config{}, st, files.NewService(t.TempDir(), st), log)
+	srv := New(config.Config{
+		WebhookAllowHTTP:    true,
+		WebhookAllowPrivate: true,
+	}, st, files.NewService(t.TempDir(), st), log)
 	return srv, st
 }
 
@@ -132,6 +135,51 @@ func TestDeleteWebhook(t *testing.T) {
 	hooks, _ := st.ListWebhooks(t.Context())
 	if len(hooks) != 0 {
 		t.Fatal("webhook should be deleted")
+	}
+}
+
+func TestWebhookRoutesRequireAdmin(t *testing.T) {
+	t.Parallel()
+
+	srv, st := newWebhookServer(t)
+	user := createTestUser(t, st, "webhook-user", false)
+	token, _ := createTestSession(t, st, user.ID, time.Hour)
+
+	wh, err := st.CreateWebhook(t.Context(), store.Webhook{
+		ID:     "admin-only-wh",
+		URL:    "https://example.com/hook",
+		Secret: "secret",
+		Events: []string{"*"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{name: "list", method: http.MethodGet, path: "/api/webhooks"},
+		{name: "create", method: http.MethodPost, path: "/api/webhooks", body: `{"url":"https://example.com/new"}`},
+		{name: "delete", method: http.MethodDelete, path: "/api/webhooks/" + wh.ID},
+		{name: "test", method: http.MethodPost, path: "/api/webhooks/" + wh.ID + "/test"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
+			req.Header.Set("Authorization", "Bearer "+token)
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+
+			srv.routes().ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("status = %d, want 403; body: %s", rec.Code, rec.Body.String())
+			}
+		})
 	}
 }
 

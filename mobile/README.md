@@ -4,7 +4,18 @@ Flutter app for goDrive — iOS and Android.
 
 ## Setup
 
-Flutter 3.22+ and Dart 3.4+ required.
+This repo pins the local toolchain through `mise`:
+
+```sh
+mise install
+mise exec -- go version
+mise exec -- node --version
+mise exec -- npm --version
+mise exec -- java -version
+mise exec -- flutter --version
+```
+
+Pinned tools are Go 1.26.2, Node 22, Java 21, and Flutter 3.44.0. npm is provided by the pinned Node runtime.
 
 ### First-time scaffold
 
@@ -50,12 +61,31 @@ http://10.0.2.2:8121
 - Gradle 9.0 is required for Java 25 compatibility.
 - Debug builds allow cleartext HTTP to any host via `android/app/src/debug/res/xml/network_security_config.xml`.
 - Release builds enforce HTTPS. Use a Caddy/nginx reverse proxy with TLS in production.
+- Release builds require a real Android upload keystore. For local builds, copy `android/key.properties.example` to `android/key.properties` and point it at your keystore. In GitHub Actions, set `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`.
+- The `Release` workflow can run without Android signing secrets by generating a temporary dry-run keystore. Those dry-run APK/AAB artifacts are only for validating the pipeline and must not be shipped.
 
 ### iOS notes
 
 - `NSAllowsLocalNetworking = true` in `Info.plist` allows HTTP to `.local` hostnames for LAN dev.
 - Remove that key and use HTTPS in production.
 - Requires Xcode + Apple Developer account (free account can sideload for personal use).
+- The `Release` workflow builds an unsigned iOS dry-run IPA on GitHub-hosted macOS runners. TestFlight upload still needs a signed IPA path with Apple distribution certificates and provisioning profiles.
+
+## Release Pipeline
+
+Existing development workflows stay unchanged:
+
+- `Mobile` builds and uploads the Android debug APK for pull requests and `main`.
+- `iOS` remains the manual unsigned iOS build used for device sideload experiments.
+
+The separate `Release` workflow runs on `v*` tags or manually:
+
+- Android always builds a release `.aab` and `.apk`.
+- Without Android signing secrets, it uses a temporary dry-run keystore and uploads workflow artifacts only.
+- With Android signing secrets, the artifacts are signed with the configured upload key.
+- On tag builds, Android artifacts are attached to the GitHub Release.
+- Google Play upload is opt-in through `workflow_dispatch` with `upload_google_play=true`; it uploads the `.aab` to the internal track as a draft release.
+- iOS currently validates the unsigned build/package path and uploads an unsigned dry-run IPA artifact. Signed TestFlight upload is intentionally blocked until Apple certificates and provisioning profiles are configured.
 
 ## Features
 

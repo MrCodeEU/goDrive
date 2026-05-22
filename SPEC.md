@@ -23,6 +23,7 @@ goDrive is a self-hosted file management system for a small family setup. It pri
 - No object storage backend in the first version.
 - No distributed/multi-node deployment in the first version.
 - No dependency on Nextcloud/oCIS storage layout.
+- No Nextcloud/oCIS API compatibility in the first version.
 - No requirement that the app owns all filesystem modifications.
 
 ## Technology Decisions
@@ -377,6 +378,8 @@ WebDAV goals:
 - Allow generic clients to browse, download, upload, rename, and delete.
 - Reuse the same auth/user-root/path resolution rules.
 - Keep behavior simple and predictable.
+
+Generic WebDAV does not include goDrive search, admin APIs, trash UI, EXIF panels, or preview APIs. A future Nextcloud-compatible layer may add companion endpoints for clients that expect Nextcloud capabilities and preview URLs, for example OCS capability discovery and `/index.php/core/preview`. That work should remain separate from the generic `/dav` implementation so WebDAV stays small and predictable.
 
 WebDAV is not required for the first coding milestone unless explicitly selected as the next task.
 
@@ -769,6 +772,8 @@ Status: Later.
 Add WebDAV after the core browser and TUS flow works.
 
 It should reuse auth, path resolution, trash/delete policy, and index update hooks.
+
+Future compatibility option: add a Nextcloud-style compatibility layer for preview-aware clients. This would likely include capability discovery plus preview endpoints such as `/index.php/core/preview`, rather than trying to encode previews into generic WebDAV behavior.
 
 ### 23. Flutter App Skeleton
 

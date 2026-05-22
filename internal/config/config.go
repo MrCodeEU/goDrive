@@ -26,6 +26,8 @@ type Config struct {
 	SessionCookieName      string
 	CSRFCookieName         string
 	CookieSecure           bool
+	CookieSameSite         string
+	HSTS                   bool
 	SessionTTL             time.Duration
 	EnableWatcher          bool
 	ReconcileInterval      time.Duration
@@ -33,6 +35,8 @@ type Config struct {
 	PreviewWorkers         int
 	PreviewTimeout         time.Duration
 	MaxUploadBytes         int64
+	WebhookAllowHTTP       bool
+	WebhookAllowPrivate    bool
 	DevLatencyMin          time.Duration
 	DevLatencyMax          time.Duration
 }
@@ -74,6 +78,14 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	cookieSecure := envBool("GODRIVE_COOKIE_SECURE", false)
+	cookieSameSite, err := parseCookieSameSite(env("GODRIVE_COOKIE_SAMESITE", "strict"))
+	if err != nil {
+		return Config{}, err
+	}
+	if cookieSameSite == "none" && !cookieSecure {
+		return Config{}, errors.New("GODRIVE_COOKIE_SAMESITE=none requires GODRIVE_COOKIE_SECURE=true")
+	}
 
 	cfg := Config{
 		Addr:                   env("GODRIVE_ADDR", "127.0.0.1:8080"),
@@ -90,7 +102,9 @@ func Load() (Config, error) {
 		BootstrapAdminRoot:     env("GODRIVE_BOOTSTRAP_ADMIN_ROOT", filepath.Join(dataRoot, "admin")),
 		SessionCookieName:      env("GODRIVE_SESSION_COOKIE", "godrive_session"),
 		CSRFCookieName:         env("GODRIVE_CSRF_COOKIE", "godrive_csrf"),
-		CookieSecure:           envBool("GODRIVE_COOKIE_SECURE", false),
+		CookieSecure:           cookieSecure,
+		CookieSameSite:         cookieSameSite,
+		HSTS:                   cookieSecure || envBool("GODRIVE_HSTS", false),
 		SessionTTL:             sessionTTL,
 		EnableWatcher:          envBool("GODRIVE_ENABLE_WATCHER", true),
 		ReconcileInterval:      reconcileInterval,
@@ -98,6 +112,8 @@ func Load() (Config, error) {
 		PreviewWorkers:         envInt("GODRIVE_PREVIEW_WORKERS", 0),
 		PreviewTimeout:         previewTimeout,
 		MaxUploadBytes:         maxUploadBytes,
+		WebhookAllowHTTP:       envBool("GODRIVE_WEBHOOK_ALLOW_HTTP", false),
+		WebhookAllowPrivate:    envBool("GODRIVE_WEBHOOK_ALLOW_PRIVATE", false),
 		DevLatencyMin:          devLatencyMin,
 		DevLatencyMax:          devLatencyMax,
 	}
@@ -156,6 +172,19 @@ func parseLatencyRange(raw string) (time.Duration, time.Duration, error) {
 		return 0, 0, fmt.Errorf("invalid latency %q", raw)
 	}
 	return value, value, nil
+}
+
+func parseCookieSameSite(raw string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "strict":
+		return "strict", nil
+	case "lax":
+		return "lax", nil
+	case "none":
+		return "none", nil
+	default:
+		return "", fmt.Errorf("GODRIVE_COOKIE_SAMESITE must be strict, lax, or none")
+	}
 }
 
 func (c Config) EnsureDirs() error {

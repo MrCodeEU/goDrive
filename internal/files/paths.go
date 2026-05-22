@@ -11,8 +11,9 @@ import (
 )
 
 var (
-	ErrInvalidPath = errors.New("invalid path")
-	ErrEscapesRoot = errors.New("path escapes user root")
+	ErrInvalidPath     = errors.New("invalid path")
+	ErrEscapesRoot     = errors.New("path escapes user root")
+	ErrContentTooLarge = errors.New("content too large")
 )
 
 type ResolvedPath struct {

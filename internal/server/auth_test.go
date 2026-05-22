@@ -110,6 +110,40 @@ func TestLoginReturnsTokenOnValidCredentials(t *testing.T) {
 	}
 }
 
+func TestLoginSetsStrictSessionCookiesByDefault(t *testing.T) {
+	t.Parallel()
+
+	srv, st := newTestServer(t)
+	createTestUser(t, st, "cookie-user", false)
+
+	body := `{"username":"cookie-user","password":"` + testPassword + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.login(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	cookies := rec.Header().Values("Set-Cookie")
+	if len(cookies) != 2 {
+		t.Fatalf("Set-Cookie count = %d, want 2: %v", len(cookies), cookies)
+	}
+	joined := strings.Join(cookies, "\n")
+	if strings.Count(joined, "SameSite=Strict") != 2 {
+		t.Fatalf("Set-Cookie headers do not both use SameSite=Strict: %v", cookies)
+	}
+	if !strings.Contains(joined, "godrive_session=") || !strings.Contains(joined, "HttpOnly") {
+		t.Fatalf("session cookie missing expected attributes: %v", cookies)
+	}
+	for _, cookie := range cookies {
+		if strings.HasPrefix(cookie, "godrive_csrf=") && strings.Contains(cookie, "HttpOnly") {
+			t.Fatalf("csrf cookie should remain readable by the browser client: %s", cookie)
+		}
+	}
+}
+
 func TestLoginRejectsWrongPassword(t *testing.T) {
 	t.Parallel()
 

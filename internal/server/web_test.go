@@ -65,3 +65,31 @@ func TestWebRootAndAssets(t *testing.T) {
 		}
 	})
 }
+
+func TestSecurityHeadersIncludeHSTSWhenConfigured(t *testing.T) {
+	t.Parallel()
+
+	srv := New(config.Config{HSTS: true}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rec := httptest.NewRecorder()
+
+	srv.routes().ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Strict-Transport-Security"); got != "max-age=31536000" {
+		t.Fatalf("Strict-Transport-Security = %q, want max-age=31536000", got)
+	}
+}
+
+func TestSecurityHeadersOmitHSTSByDefault(t *testing.T) {
+	t.Parallel()
+
+	srv := New(config.Config{}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rec := httptest.NewRecorder()
+
+	srv.routes().ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Strict-Transport-Security"); got != "" {
+		t.Fatalf("Strict-Transport-Security = %q, want empty", got)
+	}
+}

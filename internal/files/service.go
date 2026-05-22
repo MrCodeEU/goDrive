@@ -398,28 +398,39 @@ func (s *Service) FinalizeUpload(user store.User, tempPath, targetDir, filename 
 
 // WriteContent atomically replaces the content of an existing regular file.
 // Capped at maxBytes to prevent runaway writes.
-func (s *Service) WriteContent(user store.User, physical string, body io.Reader, maxBytes int64) error {
-	// Verify path is still inside the user's root (re-check after resolution).
-	if _, err := ResolveExisting(user.HomeRoot, physical); err != nil {
-		// If physical doesn't map back cleanly, reject. In practice ResolveForRead
-		// already validated it — this is a belt-and-suspenders guard.
-		_ = err
+func (s *Service) WriteContent(user store.User, logical string, body io.Reader, maxBytes int64) error {
+	if maxBytes < 0 {
+		return ErrInvalidPath
 	}
-	tmp := physical + ".godrive-edit.tmp"
+	resolved, info, err := s.ResolveForRead(user, logical)
+	if err != nil {
+		return err
+	}
+	if info.Size() > maxBytes {
+		return ErrContentTooLarge
+	}
+
+	tmp := resolved.Physical + ".godrive-edit.tmp"
 	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(f, io.LimitReader(body, maxBytes)); err != nil {
+	written, err := io.Copy(f, io.LimitReader(body, maxBytes+1))
+	if err != nil {
 		_ = f.Close()
 		_ = os.Remove(tmp)
 		return err
+	}
+	if written > maxBytes {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return ErrContentTooLarge
 	}
 	if err := f.Close(); err != nil {
 		_ = os.Remove(tmp)
 		return err
 	}
-	return os.Rename(tmp, physical)
+	return os.Rename(tmp, resolved.Physical)
 }
 
 func AvailableName(parentPhysical, filename string) (string, string, error) {

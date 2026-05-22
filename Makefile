@@ -29,8 +29,9 @@ IOS_ARTIFACT   := godrive-ios
 IOS_IPA        := /tmp/godrive-ios/godrive.ipa
 
 .PHONY: fmt fmt-check vet test test-cover test-race tidy golangci lint check run \
+        security security-go security-web security-osv security-docker \
         web-install web-dev web-check web-build web-test \
-        mobile-install mobile-test mobile-build-android \
+        mobile-install mobile-test mobile-build-android mobile-build-android-release \
         emulator-start emulator-wait mobile-run mobile-dev \
         xtool-setup xtool-auth ios-push ios-deploy ios-refresh ios-devices \
         install-hooks
@@ -72,6 +73,29 @@ lint: fmt-check vet golangci web-check
 
 check: lint test web-test web-build
 
+security: security-go security-web security-osv
+
+security-go:
+	go run golang.org/x/vuln/cmd/govulncheck@latest $(GO_PACKAGES)
+
+security-web:
+	npm audit --prefix web --audit-level=moderate
+
+security-osv:
+	@if ! command -v osv-scanner >/dev/null 2>&1; then \
+		echo "osv-scanner not found. Install from https://google.github.io/osv-scanner/ or rely on the GitHub security workflow."; \
+		exit 127; \
+	fi
+	osv-scanner --lockfile=web/package-lock.json --lockfile=mobile/pubspec.lock
+
+security-docker:
+	@if ! command -v grype >/dev/null 2>&1; then \
+		echo "grype not found. Install from https://github.com/anchore/grype or rely on the GitHub security workflow."; \
+		exit 127; \
+	fi
+	docker build -t godrive:security .
+	grype godrive:security --fail-on high
+
 run:
 	CCACHE_DISABLE=1 GOCACHE=$(GOCACHE) GODRIVE_DEV_LATENCY=$(GODRIVE_DEV_LATENCY) go run ./cmd/godrive
 
@@ -91,13 +115,17 @@ web-test:
 	npm run test --prefix web
 
 mobile-install:
-	flutter pub get --directory mobile
+	cd mobile && $(FLUTTER) pub get
 
 mobile-test:
-	flutter test --directory mobile
+	cd mobile && $(FLUTTER) test
 
 mobile-build-android:
-	$(FLUTTER) build apk --debug --project-dir mobile
+	cd mobile && $(FLUTTER) build apk --debug
+
+mobile-build-android-release:
+	cd mobile && $(FLUTTER) build appbundle --release
+	cd mobile && $(FLUTTER) build apk --release
 
 emulator-start:
 	@echo "Starting emulator $(AVD_NAME)..."

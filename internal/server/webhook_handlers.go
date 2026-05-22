@@ -32,6 +32,10 @@ func (s *Server) createWebhook(w http.ResponseWriter, r *http.Request, admin sto
 		writeError(w, http.StatusBadRequest, "url is required")
 		return
 	}
+	if _, err := validateWebhookURL(req.URL, webhookPolicyFromConfig(s.cfg)); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid webhook url: "+err.Error())
+		return
+	}
 
 	id, err := auth.RandomID(12)
 	if err != nil {

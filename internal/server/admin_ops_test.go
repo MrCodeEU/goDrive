@@ -221,3 +221,42 @@ func TestCreateUserRejectsUncreatableHomeRoot(t *testing.T) {
 		t.Fatalf("status = %d, want 400", rec.Code)
 	}
 }
+
+func TestAPIKeyRoutesRequireAdmin(t *testing.T) {
+	t.Parallel()
+
+	srv, st := newTestServer(t)
+	user := createTestUser(t, st, "apikey-user", false)
+	token, _ := createTestSession(t, st, user.ID, time.Hour)
+
+	existing, err := st.CreateAPIKey(t.Context(), "key_existing", user.ID, "existing", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{name: "list", method: http.MethodGet, path: "/api/admin/api-keys"},
+		{name: "create", method: http.MethodPost, path: "/api/admin/api-keys", body: `{"user_id":1,"name":"mobile"}`},
+		{name: "delete", method: http.MethodDelete, path: "/api/admin/api-keys/" + existing.ID},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
+			req.Header.Set("Authorization", "Bearer "+token)
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+
+			srv.routes().ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("status = %d, want 403; body: %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}

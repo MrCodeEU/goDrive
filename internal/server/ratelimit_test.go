@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"godrive/internal/store"
 )
 
 func TestLoginRateLimitBlocksAfterMaxAttempts(t *testing.T) {
@@ -95,5 +97,34 @@ func TestLoginRateLimiterAllowClearsExpiredEntries(t *testing.T) {
 	}
 	if l.allow("192.168.1.1") {
 		t.Fatal("should be blocked after max attempts")
+	}
+}
+
+func TestAuthRateLimitBlocksInvalidBearerAttempts(t *testing.T) {
+	t.Parallel()
+
+	srv, _ := newTestServer(t)
+	handler := srv.withUser(func(w http.ResponseWriter, r *http.Request, u store.User, s store.Session) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	for i := range loginMaxAttempts {
+		req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+		req.RemoteAddr = "10.10.10.10:1234"
+		req.Header.Set("Authorization", "Bearer invalid-token")
+		rec := httptest.NewRecorder()
+		handler(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d: status = %d, want 401", i+1, rec.Code)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	req.RemoteAddr = "10.10.10.10:1234"
+	req.Header.Set("Authorization", "Bearer invalid-token")
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("after block: status = %d, want 429", rec.Code)
 	}
 }

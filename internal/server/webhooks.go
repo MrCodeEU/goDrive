@@ -99,7 +99,13 @@ func (s *Server) postWebhook(ctx context.Context, url, deliveryID, event, sig st
 	reqCtx, cancel := context.WithTimeout(ctx, webhookDeliveryTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, url, bytes.NewReader(payload))
+	policy := webhookPolicyFromConfig(s.cfg)
+	parsedURL, err := validateWebhookURL(url, policy)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, parsedURL.String(), bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}
@@ -109,7 +115,7 @@ func (s *Server) postWebhook(ctx context.Context, url, deliveryID, event, sig st
 	req.Header.Set("X-GoDrive-Signature", "sha256="+sig)
 	req.Header.Set("User-Agent", "goDrive-Webhook/1.0")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := webhookHTTPClient(policy).Do(req)
 	if err != nil {
 		return err
 	}

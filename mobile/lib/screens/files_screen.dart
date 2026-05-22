@@ -11,6 +11,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../api/client.dart';
+import '../api/events.dart';
 import '../api/models.dart';
 import '../api/tus.dart';
 import '../state/auth_state.dart';
@@ -40,7 +41,7 @@ class FilesScreen extends StatefulWidget {
   State<FilesScreen> createState() => _FilesScreenState();
 }
 
-class _FilesScreenState extends State<FilesScreen> {
+class _FilesScreenState extends State<FilesScreen> with WidgetsBindingObserver {
   List<FileEntry> _entries = [];
   bool _loading = true;
   bool _hasMore = false;
@@ -57,11 +58,15 @@ class _FilesScreenState extends State<FilesScreen> {
   StreamSubscription? _sharingSubscription;
   final Set<String> _selectedPaths = {};
   final _scrollCtrl = ScrollController();
+  FileEventService? _events;
+  StreamSubscription<FileEvent>? _eventsSub;
+  Timer? _liveRefreshTimer;
   bool _fabVisible = true;
   // Sort & filter
   String _sortBy = 'name'; // 'name', 'size', 'modified', 'type'
   bool _sortAsc = true;
-  String _filterType = 'all'; // 'all', 'folders', 'images', 'videos', 'documents', 'text', '3d', 'other'
+  String _filterType =
+      'all'; // 'all', 'folders', 'images', 'videos', 'documents', 'text', '3d', 'other'
   // Recently visited
   List<String> _recentPaths = [];
   // Search filter
@@ -75,6 +80,8 @@ class _FilesScreenState extends State<FilesScreen> {
     _initSharing();
     _scrollCtrl.addListener(_onScroll);
     _loadRecentPaths();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _startFileEvents());
   }
 
   void _onScroll() {
@@ -84,8 +91,83 @@ class _FilesScreenState extends State<FilesScreen> {
     if (visible != _fabVisible) setState(() => _fabVisible = visible);
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _startFileEvents();
+      _load(_currentPath);
+      return;
+    }
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      unawaited(_stopFileEvents());
+    }
+  }
+
   ApiClient get _client => context.read<AuthState>().client!;
   TusClient get _tus => TusClient(_client);
+
+  void _startFileEvents() {
+    if (!mounted || _events != null) return;
+    final service = FileEventService(client: _client);
+    _events = service;
+    _eventsSub = service.events.listen(_handleFileEvent);
+    service.start();
+  }
+
+  Future<void> _stopFileEvents() async {
+    _liveRefreshTimer?.cancel();
+    _liveRefreshTimer = null;
+    await _eventsSub?.cancel();
+    _eventsSub = null;
+    await _events?.dispose();
+    _events = null;
+  }
+
+  void _handleFileEvent(FileEvent event) {
+    if (!_eventAffectsCurrentFolder(event)) return;
+    _liveRefreshTimer?.cancel();
+    _liveRefreshTimer = Timer(const Duration(milliseconds: 250), () {
+      _liveRefreshTimer = null;
+      if (mounted) {
+        _load(_currentPath);
+      }
+    });
+  }
+
+  bool _eventAffectsCurrentFolder(FileEvent event) {
+    final paths = [
+      event.data['path'],
+      event.data['old_path'],
+    ].whereType<String>();
+    for (final raw in paths) {
+      final path = _normalizePath(raw);
+      if (_parentPath(path) == _currentPath ||
+          path == _currentPath ||
+          _currentPath.startsWith('$path/')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  String _normalizePath(String path) {
+    if (path.isEmpty) return '/';
+    final normalized = path.startsWith('/') ? path : '/$path';
+    return normalized.length > 1 && normalized.endsWith('/')
+        ? normalized.substring(0, normalized.length - 1)
+        : normalized;
+  }
+
+  String _parentPath(String path) {
+    final normalized = _normalizePath(path);
+    if (normalized == '/') return '/';
+    final parts =
+        normalized.split('/').where((part) => part.isNotEmpty).toList();
+    parts.removeLast();
+    return parts.isEmpty ? '/' : '/${parts.join('/')}';
+  }
 
   Future<void> _load(String path) async {
     setState(() {
@@ -205,37 +287,84 @@ class _FilesScreenState extends State<FilesScreen> {
         builder: (_) => DraggableScrollableSheet(
           expand: false,
           initialChildSize: 0.8,
-          builder: (_, scroll) => Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(entry.name,
-                    style: Theme.of(context).textTheme.titleMedium),
-              ),
-              if (preview.truncated)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Text(
-                      'Showing first ${preview.maxBytes} bytes of ${preview.size}',
-                      style: Theme.of(context).textTheme.bodySmall),
-                ),
-              Expanded(
-                child: SingleChildScrollView(
-                  controller: scroll,
-                  padding: const EdgeInsets.all(16),
-                  child: Text(preview.content,
-                      style: const TextStyle(
-                          fontFamily: 'monospace', fontSize: 13)),
-                ),
-              ),
-            ],
+          builder: (_, scroll) => _TextPreviewSheet(
+            entry: entry,
+            preview: preview,
+            client: _client,
+            scrollController: scroll,
+            onSaved: () => _load(_currentPath),
           ),
         ),
       );
     } catch (e) {
       if (mounted) _showSnack('Failed to load preview: $e');
     }
+  }
+
+  Future<void> _showExif(FileEntry entry) async {
+    try {
+      final exif = await _client.fileExif(entry.path);
+      if (!mounted) return;
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        builder: (_) => DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.75,
+          builder: (_, scroll) => ListView(
+            controller: scroll,
+            padding: const EdgeInsets.all(16),
+            children: [
+              Text(entry.name, style: Theme.of(context).textTheme.titleMedium),
+              if (exif.hasGps &&
+                  exif.gpsLat != null &&
+                  exif.gpsLon != null) ...[
+                const SizedBox(height: 12),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.location_on_outlined),
+                  title: Text(
+                    '${exif.gpsLat!.toStringAsFixed(6)}, ${exif.gpsLon!.toStringAsFixed(6)}',
+                  ),
+                  trailing: const Icon(Icons.open_in_new),
+                  onTap: () => _openMap(exif.gpsLat!, exif.gpsLon!),
+                ),
+              ],
+              const SizedBox(height: 12),
+              if (exif.fields.isEmpty)
+                Text('No EXIF metadata found.',
+                    style: Theme.of(context).textTheme.bodyMedium)
+              else
+                ...exif.fields.entries
+                    .where((field) =>
+                        field.key != 'GPSLatitude' &&
+                        field.key != 'GPSLongitude' &&
+                        field.key != 'GPSPosition')
+                    .map((field) => _ExifRow(
+                          label: _humanizeExifKey(field.key),
+                          value: '${field.value}',
+                        )),
+            ],
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) _showSnack('Failed to load EXIF: $e');
+    }
+  }
+
+  Future<void> _openMap(double lat, double lon) async {
+    final url = Uri.parse(
+      'https://www.openstreetmap.org/?mlat=$lat&mlon=$lon#map=16/$lat/$lon',
+    );
+    await launchUrl(url, mode: LaunchMode.externalApplication);
+  }
+
+  String _humanizeExifKey(String key) {
+    return key.replaceAllMapped(
+      RegExp(r'([a-z0-9])([A-Z])'),
+      (match) => '${match.group(1)} ${match.group(2)}',
+    );
   }
 
   Future<void> _showFileActions(FileEntry entry) async {
@@ -254,6 +383,11 @@ class _FilesScreenState extends State<FilesScreen> {
                   leading: const Icon(Icons.open_in_new),
                   title: const Text('Open externally'),
                   onTap: () => Navigator.pop(context, 'open')),
+            if (entry.previewKind == 'image' || entry.previewKind == 'raw')
+              ListTile(
+                  leading: const Icon(Icons.info_outline),
+                  title: const Text('EXIF / GPS'),
+                  onTap: () => Navigator.pop(context, 'exif')),
             ListTile(
               leading: const Icon(Icons.content_copy_outlined),
               title: const Text('Copy path'),
@@ -293,6 +427,8 @@ class _FilesScreenState extends State<FilesScreen> {
         await _move(entry);
       case 'delete':
         await _delete(entry);
+      case 'exif':
+        await _showExif(entry);
     }
   }
 
@@ -472,9 +608,10 @@ class _FilesScreenState extends State<FilesScreen> {
 
   void _initSharing() {
     // Files shared while app is open
-    _sharingSubscription = ReceiveSharingIntent.instance.getMediaStream().listen(
-      (files) => _handleSharedFiles(files),
-    );
+    _sharingSubscription =
+        ReceiveSharingIntent.instance.getMediaStream().listen(
+              (files) => _handleSharedFiles(files),
+            );
     // Files shared to launch the app (cold start)
     ReceiveSharingIntent.instance.getInitialMedia().then((files) {
       if (files.isNotEmpty) _handleSharedFiles(files);
@@ -484,10 +621,8 @@ class _FilesScreenState extends State<FilesScreen> {
 
   Future<void> _handleSharedFiles(List<SharedMediaFile> shared) async {
     if (shared.isEmpty || !mounted) return;
-    final files = shared
-        .map((f) => File(f.path))
-        .where((f) => f.existsSync())
-        .toList();
+    final files =
+        shared.map((f) => File(f.path)).where((f) => f.existsSync()).toList();
     if (files.isEmpty) return;
 
     // Let user pick target folder, defaulting to current path
@@ -521,7 +656,8 @@ class _FilesScreenState extends State<FilesScreen> {
               _client.listFileTree().then((resp) {
                 if (ctx.mounted) {
                   setState(() {
-                    folders = resp.toList()..sort((a, b) => a.path.compareTo(b.path));
+                    folders = resp.toList()
+                      ..sort((a, b) => a.path.compareTo(b.path));
                     loading = false;
                   });
                 }
@@ -720,7 +856,16 @@ class _FilesScreenState extends State<FilesScreen> {
         'documents' => k == 'pdf' || k == 'office',
         'text' => k == 'text' || k == 'markdown',
         '3d' => k == '3d',
-        _ => !['image', 'raw', 'video', 'pdf', 'office', 'text', 'markdown', '3d'].contains(k),
+        _ => ![
+            'image',
+            'raw',
+            'video',
+            'pdf',
+            'office',
+            'text',
+            'markdown',
+            '3d'
+          ].contains(k),
       };
     }).toList();
 
@@ -771,7 +916,9 @@ class _FilesScreenState extends State<FilesScreen> {
                       }),
                       avatar: _sortBy == opt.$1
                           ? Icon(
-                              _sortAsc ? Icons.arrow_upward : Icons.arrow_downward,
+                              _sortAsc
+                                  ? Icons.arrow_upward
+                                  : Icons.arrow_downward,
                               size: 14,
                             )
                           : null,
@@ -825,7 +972,8 @@ class _FilesScreenState extends State<FilesScreen> {
   Future<void> _saveRecentPath(String path) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final updated = [path, ..._recentPaths.where((p) => p != path)].take(5).toList();
+      final updated =
+          [path, ..._recentPaths.where((p) => p != path)].take(5).toList();
       await prefs.setStringList('godrive_recent_paths', updated);
       if (mounted) setState(() => _recentPaths = updated);
     } catch (_) {}
@@ -904,7 +1052,8 @@ class _FilesScreenState extends State<FilesScreen> {
                       icon: Icon(_viewModeIcon(_viewMode)),
                       tooltip: _viewModeLabel(_viewMode),
                       onPressed: () => setState(() {
-                        _viewMode = _ViewMode.values[(_viewMode.index + 1) % _ViewMode.values.length];
+                        _viewMode = _ViewMode.values[
+                            (_viewMode.index + 1) % _ViewMode.values.length];
                       }),
                     ),
                     IconButton(
@@ -1097,7 +1246,8 @@ class _FilesScreenState extends State<FilesScreen> {
                 : ListView.separated(
                     controller: _scrollCtrl,
                     itemCount: results.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1, indent: 68),
+                    separatorBuilder: (_, __) =>
+                        const Divider(height: 1, indent: 68),
                     itemBuilder: (context, i) {
                       final entry = results[i];
                       return FileTile(
@@ -1106,7 +1256,9 @@ class _FilesScreenState extends State<FilesScreen> {
                             ? _client.thumbnailUrl(entry.path, 96)
                             : '',
                         authHeaders: _client.authHeader,
-                        onTap: () => entry.isDir ? _navigate(entry.path) : _openFile(entry),
+                        onTap: () => entry.isDir
+                            ? _navigate(entry.path)
+                            : _openFile(entry),
                         onLongPress: () => _showFileActions(entry),
                         isSelected: false,
                         inSelectionMode: false,
@@ -1307,16 +1459,22 @@ class _FilesScreenState extends State<FilesScreen> {
             onTap: () {
               if (inSelectionMode) {
                 setState(() {
-                  if (isSelected) { _selectedPaths.remove(entry.path); }
-                  else { _selectedPaths.add(entry.path); }
+                  if (isSelected) {
+                    _selectedPaths.remove(entry.path);
+                  } else {
+                    _selectedPaths.add(entry.path);
+                  }
                 });
               } else {
                 entry.isDir ? _navigate(entry.path) : _openFile(entry);
               }
             },
             onLongPress: () {
-              if (inSelectionMode) { _showFileActions(entry); }
-              else { setState(() => _selectedPaths.add(entry.path)); }
+              if (inSelectionMode) {
+                _showFileActions(entry);
+              } else {
+                setState(() => _selectedPaths.add(entry.path));
+              }
             },
             child: Stack(
               children: [
@@ -1327,7 +1485,8 @@ class _FilesScreenState extends State<FilesScreen> {
                           height: 80,
                           color: const Color(0xFFFFF8E1),
                           child: const Center(
-                            child: Icon(Icons.folder_rounded, color: Color(0xFFFFB300), size: 40),
+                            child: Icon(Icons.folder_rounded,
+                                color: Color(0xFFFFB300), size: 40),
                           ),
                         )
                       : hasThumbnail
@@ -1341,12 +1500,15 @@ class _FilesScreenState extends State<FilesScreen> {
                                 color: const Color(0xFF1A2230),
                                 child: const Center(
                                   child: SizedBox(
-                                    width: 20, height: 20,
-                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white24),
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2, color: Colors.white24),
                                   ),
                                 ),
                               ),
-                              errorWidget: (_, __, ___) => _masonryFallback(entry),
+                              errorWidget: (_, __, ___) =>
+                                  _masonryFallback(entry),
                             )
                           : _masonryFallback(entry),
                 ),
@@ -1354,15 +1516,23 @@ class _FilesScreenState extends State<FilesScreen> {
                   Positioned.fill(
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(4),
-                      child: Container(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35)),
+                      child: Container(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .primary
+                              .withValues(alpha: 0.35)),
                     ),
                   ),
                 Positioned(
-                  left: 0, right: 0, bottom: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
                   child: ClipRRect(
-                    borderRadius: const BorderRadius.vertical(bottom: Radius.circular(4)),
+                    borderRadius:
+                        const BorderRadius.vertical(bottom: Radius.circular(4)),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 4),
                       decoration: const BoxDecoration(
                         gradient: LinearGradient(
                           begin: Alignment.bottomCenter,
@@ -1372,7 +1542,8 @@ class _FilesScreenState extends State<FilesScreen> {
                       ),
                       child: Text(
                         entry.name,
-                        style: const TextStyle(color: Colors.white, fontSize: 10, height: 1.2),
+                        style: const TextStyle(
+                            color: Colors.white, fontSize: 10, height: 1.2),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -1381,14 +1552,16 @@ class _FilesScreenState extends State<FilesScreen> {
                 ),
                 if (isSelected)
                   Positioned(
-                    top: 6, right: 6,
+                    top: 6,
+                    right: 6,
                     child: Container(
                       decoration: BoxDecoration(
                         color: Theme.of(context).colorScheme.primary,
                         shape: BoxShape.circle,
                       ),
                       padding: const EdgeInsets.all(2),
-                      child: const Icon(Icons.check, color: Colors.white, size: 16),
+                      child: const Icon(Icons.check,
+                          color: Colors.white, size: 16),
                     ),
                   ),
               ],
@@ -1406,7 +1579,10 @@ class _FilesScreenState extends State<FilesScreen> {
       'pdf' => (Icons.picture_as_pdf_outlined, const Color(0xFFB73232)),
       'office' => (Icons.description_outlined, const Color(0xFF2563EB)),
       '3d' => (Icons.view_in_ar_outlined, const Color(0xFF16845B)),
-      'text' || 'markdown' => (Icons.text_snippet_outlined, const Color(0xFF50606B)),
+      'text' || 'markdown' => (
+          Icons.text_snippet_outlined,
+          const Color(0xFF50606B)
+        ),
       _ => (Icons.insert_drive_file_outlined, const Color(0xFF50606B)),
     };
     return Container(
@@ -1430,6 +1606,8 @@ class _FilesScreenState extends State<FilesScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(_stopFileEvents());
     _sharingSubscription?.cancel();
     _searchCtrl.dispose();
     _scrollCtrl.dispose();
@@ -1474,9 +1652,7 @@ class _TrashScreenState extends State<_TrashScreen> {
                   itemBuilder: (_, i) {
                     final item = _items[i];
                     return ListTile(
-                      leading: Icon(item.isDir
-                          ? Icons.folder_outlined
-                          : Icons.insert_drive_file_outlined),
+                      leading: _TrashThumb(item: item, client: widget.client),
                       title: Text(item.originalName),
                       subtitle: Text(item.originalPath),
                       trailing: Row(
@@ -1500,6 +1676,185 @@ class _TrashScreenState extends State<_TrashScreen> {
                   },
                 ),
     );
+  }
+}
+
+class _TrashThumb extends StatelessWidget {
+  final TrashItem item;
+  final ApiClient client;
+  const _TrashThumb({required this.item, required this.client});
+
+  @override
+  Widget build(BuildContext context) {
+    if (item.isDir) {
+      return const SizedBox(
+        width: 44,
+        height: 44,
+        child: Icon(Icons.folder_outlined),
+      );
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(4),
+      child: SizedBox(
+        width: 44,
+        height: 44,
+        child: CachedNetworkImage(
+          imageUrl: client.trashThumbnailUrl(item.id, 96),
+          httpHeaders: client.authHeader,
+          fit: BoxFit.cover,
+          placeholder: (_, __) => const Center(
+            child: SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ),
+          errorWidget: (_, __, ___) =>
+              const Icon(Icons.insert_drive_file_outlined),
+        ),
+      ),
+    );
+  }
+}
+
+class _TextPreviewSheet extends StatefulWidget {
+  final FileEntry entry;
+  final TextPreview preview;
+  final ApiClient client;
+  final ScrollController scrollController;
+  final Future<void> Function() onSaved;
+
+  const _TextPreviewSheet({
+    required this.entry,
+    required this.preview,
+    required this.client,
+    required this.scrollController,
+    required this.onSaved,
+  });
+
+  @override
+  State<_TextPreviewSheet> createState() => _TextPreviewSheetState();
+}
+
+class _TextPreviewSheetState extends State<_TextPreviewSheet> {
+  late final TextEditingController _controller;
+  bool _editing = false;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.preview.content);
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      await widget.client.saveFileContent(widget.entry.path, _controller.text);
+      await widget.onSaved();
+      if (mounted) {
+        setState(() {
+          _editing = false;
+          _saving = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Save failed: $e')));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canEdit = !widget.preview.truncated && !_saving;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(widget.entry.name,
+                    style: Theme.of(context).textTheme.titleMedium),
+              ),
+              if (_editing) ...[
+                TextButton(
+                  onPressed: _saving
+                      ? null
+                      : () {
+                          _controller.text = widget.preview.content;
+                          setState(() => _editing = false);
+                        },
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: _saving ? null : _save,
+                  child: _saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Save'),
+                ),
+              ] else
+                TextButton.icon(
+                  onPressed:
+                      canEdit ? () => setState(() => _editing = true) : null,
+                  icon: const Icon(Icons.edit_outlined),
+                  label: const Text('Edit'),
+                ),
+            ],
+          ),
+        ),
+        if (widget.preview.truncated)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              'Showing first ${widget.preview.maxBytes} bytes of ${widget.preview.size}. Editing is disabled for truncated previews.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+        Expanded(
+          child: _editing
+              ? Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: TextField(
+                    controller: _controller,
+                    expands: true,
+                    maxLines: null,
+                    minLines: null,
+                    textAlignVertical: TextAlignVertical.top,
+                    style:
+                        const TextStyle(fontFamily: 'monospace', fontSize: 13),
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                )
+              : SingleChildScrollView(
+                  controller: widget.scrollController,
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    widget.preview.content,
+                    style:
+                        const TextStyle(fontFamily: 'monospace', fontSize: 13),
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
 }
 
@@ -1638,7 +1993,11 @@ class _GridCell extends StatelessWidget {
             _fallbackIcon(),
           // Selection overlay
           if (isSelected)
-            Container(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35)),
+            Container(
+                color: Theme.of(context)
+                    .colorScheme
+                    .primary
+                    .withValues(alpha: 0.35)),
           // Name overlay at bottom
           Positioned(
             left: 0,
@@ -1707,6 +2066,32 @@ class _GridCell extends StatelessWidget {
   }
 }
 
+class _ExifRow extends StatelessWidget {
+  final String label;
+  final String value;
+  const _ExifRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+          ),
+          const SizedBox(height: 2),
+          SelectableText(value),
+        ],
+      ),
+    );
+  }
+}
+
 class _FolderPickerTile extends StatelessWidget {
   final String path;
   final bool isSelected;
@@ -1720,7 +2105,9 @@ class _FolderPickerTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final parts = path == '/' ? <String>[] : path.split('/').where((s) => s.isNotEmpty).toList();
+    final parts = path == '/'
+        ? <String>[]
+        : path.split('/').where((s) => s.isNotEmpty).toList();
     final depth = parts.isNotEmpty ? parts.length - 1 : 0;
     final name = parts.isEmpty ? 'My files' : parts.last;
     return ListTile(
@@ -1762,8 +2149,10 @@ class _EmptyFolderState extends StatelessWidget {
                 color: Theme.of(context).colorScheme.onSurfaceVariant)),
         const SizedBox(height: 8),
         Text('Upload files or create a folder to get started.',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.outline),
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(color: Theme.of(context).colorScheme.outline),
             textAlign: TextAlign.center),
       ],
     );

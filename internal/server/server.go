@@ -158,7 +158,7 @@ func (s *Server) routes() http.Handler {
 	// WebDAV must not be added to mux: "/dav/" (all-methods) conflicts with
 	// "GET /" (catch-all) in Go 1.22+ mux. Intercept in the outer handler instead.
 	// Supports both Basic Auth (for Finder/iOS Files) and bearer/cookie auth.
-	return s.logRequests(s.devLatency(securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return s.logRequests(s.devLatency(s.securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/dav/") || r.URL.Path == "/dav" {
 			s.serveWebDAVHTTP(w, r)
 			return
@@ -171,10 +171,13 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func securityHeaders(next http.Handler) http.Handler {
+func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "same-origin")
+		if s.cfg.HSTS {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -208,6 +211,8 @@ func statusForError(err error) int {
 		return http.StatusConflict
 	case errors.Is(err, files.ErrInvalidPath), errors.Is(err, files.ErrEscapesRoot):
 		return http.StatusBadRequest
+	case errors.Is(err, files.ErrContentTooLarge):
+		return http.StatusRequestEntityTooLarge
 	case errors.Is(err, http.ErrMissingFile):
 		return http.StatusNotFound
 	default:
