@@ -37,6 +37,7 @@ type Config struct {
 	MaxUploadBytes         int64
 	WebhookAllowHTTP       bool
 	WebhookAllowPrivate    bool
+	DemoMode               bool
 	DevLatencyMin          time.Duration
 	DevLatencyMax          time.Duration
 }
@@ -114,6 +115,7 @@ func Load() (Config, error) {
 		MaxUploadBytes:         maxUploadBytes,
 		WebhookAllowHTTP:       envBool("GODRIVE_WEBHOOK_ALLOW_HTTP", false),
 		WebhookAllowPrivate:    envBool("GODRIVE_WEBHOOK_ALLOW_PRIVATE", false),
+		DemoMode:               envBool("GODRIVE_DEMO_MODE", false),
 		DevLatencyMin:          devLatencyMin,
 		DevLatencyMax:          devLatencyMax,
 	}

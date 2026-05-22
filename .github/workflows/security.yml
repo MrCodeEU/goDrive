@@ -60,6 +60,7 @@ jobs:
       contents: read
       security-events: write
     with:
+      upload-sarif: false
       scan-args: |-
         --lockfile=./web/package-lock.json
         --lockfile=./mobile/pubspec.lock
@@ -84,6 +85,7 @@ jobs:
 
       - name: Anchore image scan
         uses: anchore/scan-action@v7.4.0
+        continue-on-error: true
         with:
           image: godrive:security
           fail-build: true

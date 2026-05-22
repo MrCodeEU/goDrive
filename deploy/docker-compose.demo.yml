@@ -1,0 +1,34 @@
+services:
+  godrive-demo:
+    build:
+      context: ..
+      dockerfile: Dockerfile.demo
+    restart: unless-stopped
+    ports:
+      # Keep the demo bound to localhost and publish it through your reverse proxy.
+      - "127.0.0.1:8081:8080"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 512m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=1770,size=32m
+      - /data:uid=10001,gid=10001,mode=0750,size=128m
+      - /appdata:uid=10001,gid=10001,mode=0750,size=128m
+    environment:
+      GODRIVE_COOKIE_SECURE: "true"
+      GODRIVE_HSTS: "true"
+      GODRIVE_SESSION_TTL: 2h
+      GODRIVE_DEMO_USER: demo
+      GODRIVE_DEMO_PASSWORD: demo
+      GODRIVE_DEV_LATENCY: 20ms-80ms
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/godrive", "status"]
+      interval: 1m
+      timeout: 10s
+      retries: 3
+      start_period: 30s

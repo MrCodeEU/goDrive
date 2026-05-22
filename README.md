@@ -65,6 +65,8 @@ docker compose -f deploy/docker-compose.yml up -d
 
 Release images are published to `ghcr.io/<owner>/godrive` on `v*` tags.
 
+For a disposable public demo deployment, use the hardened demo compose profile in `deploy/docker-compose.demo.yml`; see `docs/demo-instance.md`.
+
 ## Mobile (Android)
 
 ```sh
@@ -190,6 +192,7 @@ make security-docker # Docker build + Grype image scan
 | `GODRIVE_MAX_UPLOAD_BYTES` | `0` | Max declared TUS upload size in bytes (`0` = unlimited) |
 | `GODRIVE_WEBHOOK_ALLOW_HTTP` | `false` | Allow non-HTTPS webhook URLs. Keep `false` for internet-facing deployments; set `true` only for trusted local networks. |
 | `GODRIVE_WEBHOOK_ALLOW_PRIVATE` | `false` | Allow webhook delivery to private, loopback, link-local, and other non-public IP ranges. Useful for LAN automation, but unsafe for public demo instances. |
+| `GODRIVE_DEMO_MODE` | `false` | Disable dangerous public-demo surfaces such as WebDAV, admin APIs, webhooks, uploads, trash mutations, API keys, and file writes. |
 | `GODRIVE_DEV_LATENCY` | _(none)_ | Inject fake API latency, e.g. `10ms-25ms` |
 
 ## Volume Categories (Backup Guide)

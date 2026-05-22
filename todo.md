@@ -32,6 +32,9 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
   - Flutter/Dart dependency audit.
   - Docker image scan.
   - GitHub Dependabot or Renovate.
+- [ ] Reduce Docker image vulnerability noise.
+  - Split preview tooling such as LibreOffice, ffmpeg, libvips, and poppler into a separate optional image/profile if practical.
+  - Keep container vulnerability reports visible while avoiding unrelated base-image CVEs blocking every Dependabot PR.
 - [x] Add a public `SECURITY.md`.
   - Include supported versions.
   - Include vulnerability disclosure process.
@@ -198,36 +201,38 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
 
 ## Demo Instance
 
-- [ ] Design a public demo instance strategy.
-  - Always up to date with `main` or latest release.
-  - Securely isolated from production and developer machines.
-  - Uses disposable demo data only.
-  - Automatically resets to a known state on a schedule.
-  - Automatically resets after risky user actions or suspected abuse.
-  - Blocks or constrains dangerous features such as webhooks, WebDAV writes, admin root editing, API key creation, or arbitrary uploads if needed.
-  - Has upload size/type limits.
-  - Has rate limits and abuse protection.
-  - Runs behind HTTPS.
-  - Has monitoring and health checks.
-  - Has clear public demo credentials with no sensitive data.
-  - Has CI/CD deployment from trusted branches only.
-  - Can be destroyed and recreated from code and seed data.
-- [ ] Decide demo hosting.
-  - VPS, Fly.io, Render, Railway, Hetzner, home lab, or GitHub Actions-triggered deployment.
-- [ ] Add demo seed data generation.
+- [x] Design a public demo instance strategy.
+  - [x] Always up to date with `main` or latest release.
+  - [x] Securely isolated from production and developer machines.
+  - [x] Uses disposable demo data only.
+  - [x] Automatically resets to a known state on container restart.
+  - [ ] Automatically resets on a schedule.
+  - [x] Blocks or constrains dangerous features such as webhooks, WebDAV writes, admin root editing, API key creation, or arbitrary uploads if needed.
+  - [x] Has upload size/type limits.
+  - [x] Has rate limits and abuse protection.
+  - [x] Runs behind HTTPS.
+  - [x] Has health checks.
+  - [x] Has clear public demo credentials with no sensitive data.
+  - [ ] Has monitoring.
+  - [x] Has CI/CD deployment from trusted branches only.
+  - [x] Can be destroyed and recreated from code and seed data.
+- [x] Decide demo hosting.
+  - Home lab via `MrCodeEU/homelab-automation` repository dispatch.
+- [x] Add demo seed data generation.
   - Small but representative folder tree.
   - Images, videos, PDFs, text, Markdown, office-like files, and 3D models.
   - No copyrighted/private content.
 - [ ] Add demo reset implementation.
   - Immutable seed volume or object store.
+  - [x] Reset-on-container-start with `tmpfs` data/appdata.
   - Periodic container/database reset.
   - Reset button/job for maintainers.
   - Post-reset health verification.
-- [ ] Add demo-specific config profile.
+- [x] Add demo-specific config profile.
   - Disable or sandbox risky admin features.
   - Short sessions.
   - Strict upload limits.
-  - Clear banner that data is public and reset regularly.
+  - [ ] Clear in-app banner that data is public and reset regularly.
 
 ## Suggested Work Order
 

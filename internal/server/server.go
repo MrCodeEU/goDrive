@@ -159,12 +159,57 @@ func (s *Server) routes() http.Handler {
 	// "GET /" (catch-all) in Go 1.22+ mux. Intercept in the outer handler instead.
 	// Supports both Basic Auth (for Finder/iOS Files) and bearer/cookie auth.
 	return s.logRequests(s.devLatency(s.securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.demoModeBlocks(w, r) {
+			return
+		}
 		if strings.HasPrefix(r.URL.Path, "/dav/") || r.URL.Path == "/dav" {
 			s.serveWebDAVHTTP(w, r)
 			return
 		}
 		mux.ServeHTTP(w, r)
 	}))))
+}
+
+func (s *Server) demoModeBlocks(w http.ResponseWriter, r *http.Request) bool {
+	if !s.cfg.DemoMode {
+		return false
+	}
+	if r.URL.Path == "/api/auth/login" || r.URL.Path == "/api/auth/logout" {
+		return false
+	}
+	if r.URL.Path == "/dav" || strings.HasPrefix(r.URL.Path, "/dav/") {
+		writeError(w, http.StatusForbidden, "WebDAV is disabled in demo mode")
+		return true
+	}
+	if strings.HasPrefix(r.URL.Path, "/api/admin/") ||
+		r.URL.Path == "/api/webhooks" || strings.HasPrefix(r.URL.Path, "/api/webhooks/") ||
+		strings.HasPrefix(r.URL.Path, "/api/tus") ||
+		r.URL.Path == "/api/trash" || strings.HasPrefix(r.URL.Path, "/api/trash/") {
+		writeError(w, http.StatusForbidden, "this action is disabled in demo mode")
+		return true
+	}
+	if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
+		return false
+	}
+	if r.URL.Path == "/api/files" || strings.HasPrefix(r.URL.Path, "/api/files/") {
+		if r.Method == http.MethodPost && r.URL.Path == "/api/files/bulk/download" {
+			return false
+		}
+		switch r.URL.Path {
+		case "/api/files/mkdir",
+			"/api/files/move",
+			"/api/files/bulk/delete",
+			"/api/files/bulk/move",
+			"/api/files/content":
+			writeError(w, http.StatusForbidden, "file changes are disabled in demo mode")
+			return true
+		}
+		if r.Method == http.MethodDelete || r.Method == http.MethodPatch || r.Method == http.MethodPost || r.Method == http.MethodPut {
+			writeError(w, http.StatusForbidden, "file changes are disabled in demo mode")
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
