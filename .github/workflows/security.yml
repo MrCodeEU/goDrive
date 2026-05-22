@@ -33,6 +33,7 @@ jobs:
         uses: golang/govulncheck-action@v1
         with:
           go-package: ./...
+          repo-checkout: false
 
   web-audit:
     name: Web npm audit

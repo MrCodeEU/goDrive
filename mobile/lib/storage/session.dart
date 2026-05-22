@@ -4,9 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 const _keyToken = 'godrive_token';
 const _keyBaseUrl = 'godrive_base_url';
 
-const _secure = FlutterSecureStorage(
-  aOptions: AndroidOptions(encryptedSharedPreferences: true),
-);
+const _secure = FlutterSecureStorage();
 
 Future<void> saveSession(String baseUrl, String token) async {
   final prefs = await SharedPreferences.getInstance();
