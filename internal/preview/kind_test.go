@@ -7,6 +7,7 @@ func TestKindForNameExtendedPreviewTypes(t *testing.T) {
 
 	tests := map[string]string{
 		"photo.CR3":      "raw",
+		"diagram.SVG":    "image",
 		"capture.dng":    "raw",
 		"sheet.xlsx":     "office",
 		"slides.pptx":    "office",

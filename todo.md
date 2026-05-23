@@ -234,6 +234,7 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
   - No copyrighted/private content.
 - [x] Expand demo seed data further.
   - [x] More varied image-like samples.
+  - [x] Optional seeded Picsum JPEG photos for real raster-image preview coverage.
   - [x] More nested folders.
   - [x] More realistic documents, CSV, JSON, Markdown, code snippets, and release/store assets.
   - [x] Simple generated 3D OBJ fixtures.

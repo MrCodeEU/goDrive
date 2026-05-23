@@ -33,7 +33,7 @@ When `GODRIVE_DEMO_MODE=true`, the server rejects:
 
 The demo container also omits LibreOffice, ffmpeg, poppler, and libvips to reduce container attack surface. It should not be used to validate full preview-tool behavior.
 
-The seed dataset is generated locally at container startup. It includes hundreds of deterministic SVG image samples, a deeply nested folder tree, Markdown/CSV/JSON/code fixtures, store-copy examples, and simple OBJ 3D models. The defaults can be adjusted with `GODRIVE_DEMO_IMAGE_COUNT`, `GODRIVE_DEMO_NESTED_DEPTH`, and `GODRIVE_DEMO_MODEL_COUNT`.
+The seed dataset is generated at container startup. It includes hundreds of deterministic SVG image samples, optional seeded Picsum JPEG photos, a deeply nested folder tree, Markdown/CSV/JSON/code fixtures, store-copy examples, and simple OBJ 3D models. The generator keeps working offline; if Picsum cannot be reached it records the skipped images and continues. The defaults can be adjusted with `GODRIVE_DEMO_IMAGE_COUNT`, `GODRIVE_DEMO_REMOTE_IMAGE_COUNT`, `GODRIVE_DEMO_REMOTE_IMAGE_SOURCE`, `GODRIVE_DEMO_NESTED_DEPTH`, and `GODRIVE_DEMO_MODEL_COUNT`.
 
 ## Run Locally
 

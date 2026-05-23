@@ -109,6 +109,35 @@ func TestRawFileServesInlineContent(t *testing.T) {
 	}
 }
 
+func TestRawFileServesSVGInlineWithSandbox(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	source := filepath.Join(dir, "diagram.svg")
+	if err := os.WriteFile(source, []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script><rect width="10" height="10"/></svg>`), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := New(config.Config{}, nil, files.NewService("", nil), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	req := httptest.NewRequest(http.MethodGet, "/api/files/raw?path=/diagram.svg", nil)
+	rec := httptest.NewRecorder()
+
+	srv.rawFile(rec, req, store.User{HomeRoot: dir}, store.Session{})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Disposition"); got != `inline; filename="diagram.svg"` {
+		t.Fatalf("content disposition = %q", got)
+	}
+	if got := rec.Header().Get("Content-Type"); got != "image/svg+xml" {
+		t.Fatalf("content type = %q, want image/svg+xml", got)
+	}
+	if got := rec.Header().Get("Content-Security-Policy"); got != "sandbox" {
+		t.Fatalf("content security policy = %q, want sandbox", got)
+	}
+}
+
 func TestRawFileServesActiveContentAsAttachment(t *testing.T) {
 	t.Parallel()
 

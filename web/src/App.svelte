@@ -53,7 +53,8 @@
     type FileEntry,
     type TextPreview,
     type TrashItem,
-    type User
+    type User,
+    setToken
   } from "./lib/api";
 
   const previewKinds = new Set(["image", "raw", "video", "pdf", "office", "text", "markdown", "3d"]);
@@ -285,8 +286,10 @@
       }
     }, { rootMargin: '200px' });
 
-    void loadPublicConfig();
-    void restoreSession();
+    void (async () => {
+      await loadPublicConfig();
+      await restoreSession();
+    })();
     return () => {
       window.removeEventListener("popstate", onPopState);
       window.removeEventListener("beforeunload", onBeforeUnload);
@@ -309,6 +312,8 @@
       await Promise.all([loadTree(), loadPath(pathFromURL(), { push: false })]);
       startFileEvents();
     } catch (err) {
+      setToken("");
+      user = null;
       error = messageFromError(err);
     } finally {
       loading = false;
@@ -321,7 +326,7 @@
       demoMode = config.demo_mode;
       if (config.demo_mode && config.demo_user && config.demo_password) {
         demoLogin = { username: config.demo_user, password: config.demo_password };
-        if (!currentToken() && !user && !username && !password) {
+        if (!user && !username && !password) {
           username = demoLogin.username;
           password = demoLogin.password;
         }
@@ -1473,7 +1478,17 @@
   }
 
   function previewURL(entry: FileEntry, size = 420) {
+    if (isSVGFile(entry)) return rawFileURL(entry.path);
     return thumbnailKinds.has(entry.preview_kind || "") ? thumbnailURL(entry.path, size) : "";
+  }
+
+  function isSVGFile(entry: Pick<FileEntry, "type" | "name" | "path" | "preview_kind">) {
+    return entry.type === "file" && entry.preview_kind === "image" && /\.(svg)$/i.test(entry.name || entry.path);
+  }
+
+  function viewerImageURL(entry: FileEntry) {
+    if (isSVGFile(entry)) return rawFileURL(entry.path);
+    return entry.preview_kind === "image" && viewerOriginal ? rawFileURL(entry.path) : thumbnailURL(entry.path, 2048);
   }
 
   function jobProgress(job: AdminJob) {
@@ -1889,7 +1904,7 @@
           <div class="viewer-content">
             {#if viewerFile.preview_kind === "image" || viewerFile.preview_kind === "raw" || viewerFile.preview_kind === "office"}
               <div class="viewer-stage">
-                <img style={`transform: scale(${viewerZoom})`} src={viewerFile.preview_kind === "image" && viewerOriginal ? rawFileURL(viewerFile.path) : thumbnailURL(viewerFile.path, 2048)} alt={viewerFile.name} />
+                <img style={`transform: scale(${viewerZoom})`} src={viewerImageURL(viewerFile)} alt={viewerFile.name} />
               </div>
               {#if viewerFile.preview_kind === "image" || viewerFile.preview_kind === "raw"}
                 <button class="viewer-nav viewer-nav-prev" type="button" title="Previous (←)" on:click={() => showAdjacentImage(-1)}><Icon name="chevronLeft" /></button>

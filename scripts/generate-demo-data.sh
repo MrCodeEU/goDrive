@@ -5,6 +5,8 @@ ROOT="${1:-/data/demo}"
 IMAGE_COUNT="${GODRIVE_DEMO_IMAGE_COUNT:-420}"
 NESTED_DEPTH="${GODRIVE_DEMO_NESTED_DEPTH:-10}"
 MODEL_COUNT="${GODRIVE_DEMO_MODEL_COUNT:-18}"
+REMOTE_IMAGE_COUNT="${GODRIVE_DEMO_REMOTE_IMAGE_COUNT:-96}"
+REMOTE_IMAGE_SOURCE="${GODRIVE_DEMO_REMOTE_IMAGE_SOURCE:-https://picsum.photos/seed}"
 
 mkdir -p "$ROOT"
 
@@ -57,8 +59,20 @@ f 5 1 4 8
 EOF
 }
 
+download_remote_image() {
+	file="$1"
+	seed="$2"
+	width="$3"
+	height="$4"
+	if ! command -v curl >/dev/null 2>&1; then
+		return 1
+	fi
+	curl -fsSL --retry 1 --connect-timeout 3 --max-time 8 "$REMOTE_IMAGE_SOURCE/$seed/$width/$height" -o "$file"
+}
+
 mkdir -p \
 	"$ROOT/Photos/Large Gallery" \
+	"$ROOT/Photos/Picsum" \
 	"$ROOT/Photos/Portraits" \
 	"$ROOT/Photos/Landscape" \
 	"$ROOT/Photos/Square" \
@@ -81,6 +95,31 @@ while [ "$i" -le "$IMAGE_COUNT" ]; do
 		*) dir="$ROOT/Photos/Square"; width=1200; height=1200 ;;
 	esac
 	write_svg_image "$dir/demo-image-$(printf '%04d' "$i").svg" "$i" "$width" "$height"
+	i=$((i + 1))
+done
+
+i=1
+remote_failures=0
+while [ "$i" -le "$REMOTE_IMAGE_COUNT" ]; do
+	case $((i % 5)) in
+		0) width=2048; height=1365 ;;
+		1) width=1280; height=1920 ;;
+		2) width=1920; height=1080 ;;
+		3) width=1440; height=1440 ;;
+		*) width=2560; height=1440 ;;
+	esac
+	file="$ROOT/Photos/Picsum/picsum-$(printf '%04d' "$i")-${width}x${height}.jpg"
+	if ! download_remote_image "$file" "godrive-$i" "$width" "$height"; then
+		rm -f "$file"
+		echo "picsum-$(printf '%04d' "$i") ${width}x${height}" >> "$ROOT/Photos/Picsum/download-failures.txt"
+		remote_failures=$((remote_failures + 1))
+		if [ "$remote_failures" -ge 3 ]; then
+			echo "Skipping remaining remote demo images after $remote_failures download failures." >> "$ROOT/Photos/Picsum/download-failures.txt"
+			break
+		fi
+	else
+		remote_failures=0
+	fi
 	i=$((i + 1))
 done
 

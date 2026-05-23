@@ -573,7 +573,7 @@ func safeInlineContentType(contentType string) bool {
 		return true
 	}
 	if strings.HasPrefix(mediaType, "image/") {
-		return mediaType != "image/svg+xml"
+		return true
 	}
 	return strings.HasPrefix(mediaType, "video/") || strings.HasPrefix(mediaType, "audio/")
 }
