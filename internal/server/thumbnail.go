@@ -287,7 +287,11 @@ func generateImageThumbnail(ctx context.Context, source string, size int, target
 	if ffmpegErr == nil {
 		return nil
 	}
-	return fmt.Errorf("image thumbnail requires vipsthumbnail or ffmpeg: vipsthumbnail: %v; ffmpeg: %v", vipsErr, ffmpegErr)
+	stdlibErr := generateImageThumbnailStdlib(source, size, target)
+	if stdlibErr == nil {
+		return nil
+	}
+	return fmt.Errorf("image thumbnail requires vipsthumbnail, ffmpeg, or a stdlib-decodable image: vipsthumbnail: %v; ffmpeg: %v; stdlib: %v", vipsErr, ffmpegErr, stdlibErr)
 }
 
 func generateRAWThumbnail(ctx context.Context, source string, size int, target string) error {
@@ -380,7 +384,7 @@ func generateImageThumbnailStdlib(source string, size int, target string) error 
 		}
 	}
 
-	out, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o640)
+	out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o640)
 	if err != nil {
 		return err
 	}
