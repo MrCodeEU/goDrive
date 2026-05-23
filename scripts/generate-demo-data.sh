@@ -59,6 +59,30 @@ f 5 1 4 8
 EOF
 }
 
+convert_to_pdf_if_available() {
+	source="$1"
+	outdir="$2"
+	if ! command -v libreoffice >/dev/null 2>&1; then
+		return 0
+	fi
+	profile="${TMPDIR:-/tmp}/godrive-libreoffice-profile-$$"
+	mkdir -p "$profile"
+	HOME="$profile" XDG_CONFIG_HOME="$profile/config" XDG_CACHE_HOME="$profile/cache" XDG_DATA_HOME="$profile/data" \
+		libreoffice "-env:UserInstallation=file://$profile/user-installation" --headless --nologo --nofirststartwizard --nodefault --norestore --convert-to pdf --outdir "$outdir" "$source" >/dev/null 2>&1 || true
+	rm -rf "$profile"
+}
+
+write_demo_video_if_available() {
+	file="$1"
+	if ! command -v ffmpeg >/dev/null 2>&1; then
+		return 0
+	fi
+	ffmpeg -hide_banner -loglevel error -y \
+		-f lavfi -i "testsrc=size=1280x720:rate=24" \
+		-f lavfi -i "sine=frequency=880:sample_rate=44100" \
+		-t 4 -pix_fmt yuv420p -shortest "$file" >/dev/null 2>&1 || true
+}
+
 download_remote_image() {
 	file="$1"
 	seed="$2"
@@ -77,11 +101,13 @@ mkdir -p \
 	"$ROOT/Photos/Landscape" \
 	"$ROOT/Photos/Square" \
 	"$ROOT/Models/OBJ" \
+	"$ROOT/Media/Videos" \
 	"$ROOT/Code/Web" \
 	"$ROOT/Code/Backend" \
 	"$ROOT/Code/Mobile" \
 	"$ROOT/Documents/Reports/Quarterly" \
 	"$ROOT/Documents/Exports" \
+	"$ROOT/Documents/Office" \
 	"$ROOT/Store Assets/Screenshots" \
 	"$ROOT/Store Assets/Copy" \
 	"$ROOT/Deep Archive"
@@ -204,6 +230,30 @@ cat > "$ROOT/Documents/Exports/api-response.json" <<'EOF'
   "reset": "container restart"
 }
 EOF
+
+cat > "$ROOT/Documents/Office/launch-brief.rtf" <<'EOF'
+{\rtf1\ansi\deff0
+{\fonttbl{\f0 Arial;}}
+\fs36\b Launch Brief\b0\par
+\fs24 This generated RTF file gives the demo an office document for preview conversion.\par
+\par
+\b Sections\b0\par
+1. Product readiness\par
+2. Store listing assets\par
+3. Demo environment reset policy\par
+}
+EOF
+
+cat > "$ROOT/Documents/Office/preview-matrix.doc" <<'EOF'
+{\rtf1\ansi\deff0
+{\fonttbl{\f0 Arial;}}
+\fs32\b Preview Matrix\b0\par
+\fs24 Images, PDFs, office documents, Markdown, text, video posters, and 3D assets should all be represented in the public demo.\par
+}
+EOF
+
+convert_to_pdf_if_available "$ROOT/Documents/Office/launch-brief.rtf" "$ROOT/Documents/Office"
+write_demo_video_if_available "$ROOT/Media/Videos/preview-test.mp4"
 
 cat > "$ROOT/Store Assets/Copy/play-store-short-description.txt" <<'EOF'
 Self-hosted file manager with previews, search, WebDAV, and mobile apps.

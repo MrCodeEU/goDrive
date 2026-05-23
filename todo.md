@@ -33,7 +33,7 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
   - Docker image scan.
   - GitHub Dependabot or Renovate.
 - [ ] Reduce Docker image vulnerability noise.
-  - Split preview tooling such as LibreOffice, ffmpeg, libvips, and poppler into a separate optional image/profile if practical.
+  - Consider an additional minimal/no-preview production image only if it does not create divergent feature behavior.
   - Keep container vulnerability reports visible while avoiding unrelated base-image CVEs blocking every Dependabot PR.
 - [x] Add a public `SECURITY.md`.
   - Include supported versions.
@@ -237,8 +237,11 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
   - [x] Optional seeded Picsum JPEG photos for real raster-image preview coverage.
   - [x] More nested folders.
   - [x] More realistic documents, CSV, JSON, Markdown, code snippets, and release/store assets.
+  - [x] Office/PDF/video fixtures for full preview pipeline coverage.
   - [x] Simple generated 3D OBJ fixtures.
   - [x] Tunable generation counts for image/model/deep-folder volume.
+- [x] Keep the demo image on the full production preview toolchain.
+  - Includes LibreOffice, ffmpeg, poppler, and libvips so the public demo exercises the real preview path.
 - [x] Add limited read-only demo admin mode.
   - Demo account is admin so the UI is visible.
   - Read-only admin GET endpoints stay available.

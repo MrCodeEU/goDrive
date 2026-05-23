@@ -14,10 +14,18 @@ COPY . .
 COPY --from=web /src/internal/server/static/ ./internal/server/static/
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /godrive ./cmd/godrive
 
-FROM alpine:3.22
-RUN apk add --no-cache ca-certificates curl tzdata \
-    && addgroup -g 10001 godrive \
-    && adduser -D -H -u 10001 -G godrive godrive \
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    ffmpeg \
+    libvips-tools \
+    libreoffice \
+    poppler-utils \
+    tzdata \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid 10001 godrive \
+    && useradd --system --uid 10001 --gid godrive --home-dir /nonexistent --shell /usr/sbin/nologin godrive \
     && mkdir -p /data /appdata /tmp \
     && chown -R godrive:godrive /data /appdata /tmp
 
@@ -46,7 +54,7 @@ ENV GODRIVE_ENABLE_WATCHER=false
 ENV GODRIVE_RECONCILE_INTERVAL=0
 ENV GODRIVE_UPLOAD_TTL=15m
 ENV GODRIVE_MAX_UPLOAD_BYTES=1
-ENV GODRIVE_PREVIEW_WORKERS=0
+ENV GODRIVE_PREVIEW_WORKERS=2
 ENV GODRIVE_WEBHOOK_WORKERS=0
 ENV GODRIVE_WEBHOOK_ALLOW_HTTP=false
 ENV GODRIVE_WEBHOOK_ALLOW_PRIVATE=false

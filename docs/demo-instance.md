@@ -31,9 +31,9 @@ When `GODRIVE_DEMO_MODE=true`, the server rejects:
 - File create, move, delete, edit, and upload paths.
 - API key management.
 
-The demo container also omits LibreOffice, ffmpeg, poppler, and libvips to reduce container attack surface. It should not be used to validate full preview-tool behavior.
+The demo container includes the same preview toolchain as the production image: LibreOffice, ffmpeg, poppler, and libvips. This keeps the public demo on the real preview path while demo mode still disables write/admin surfaces for safety.
 
-The seed dataset is generated at container startup. It includes hundreds of deterministic SVG image samples, optional seeded Picsum JPEG photos, a deeply nested folder tree, Markdown/CSV/JSON/code fixtures, store-copy examples, and simple OBJ 3D models. The generator keeps working offline; if Picsum cannot be reached it records the skipped images and continues. The defaults can be adjusted with `GODRIVE_DEMO_IMAGE_COUNT`, `GODRIVE_DEMO_REMOTE_IMAGE_COUNT`, `GODRIVE_DEMO_REMOTE_IMAGE_SOURCE`, `GODRIVE_DEMO_NESTED_DEPTH`, and `GODRIVE_DEMO_MODEL_COUNT`.
+The seed dataset is generated at container startup. It includes hundreds of deterministic SVG image samples, optional seeded Picsum JPEG photos, a deeply nested folder tree, Markdown/CSV/JSON/code/office fixtures, generated PDF/video examples when the preview tools are present, store-copy examples, and simple OBJ 3D models. The generator keeps working offline; if Picsum cannot be reached it records the skipped images and continues. The defaults can be adjusted with `GODRIVE_DEMO_IMAGE_COUNT`, `GODRIVE_DEMO_REMOTE_IMAGE_COUNT`, `GODRIVE_DEMO_REMOTE_IMAGE_SOURCE`, `GODRIVE_DEMO_NESTED_DEPTH`, and `GODRIVE_DEMO_MODEL_COUNT`.
 
 ## Run Locally
 
@@ -86,7 +86,7 @@ After the demo image is pushed from a successful `main` CI run, the workflow sen
 
 This requires a `DISPATCH_TOKEN` repository secret in this repo with permission to dispatch workflows in `MrCodeEU/homelab-automation`.
 
-The production Docker image is built after the demo image succeeds. This keeps the demo deployment path fast and uses the lightweight demo image as the first Docker publish quality gate before starting the heavier preview-tool image.
+The production Docker image is built after the demo image succeeds. The demo image intentionally includes the full preview stack, so this keeps the public demo and production preview paths aligned.
 
 ## Container Hardening
 
@@ -100,6 +100,8 @@ The demo compose file sets:
 - PID, memory, and CPU limits.
 - Short session lifetime.
 - HTTPS/HSTS cookie assumptions for reverse-proxy deployment.
+
+The tmpfs limits need to leave room for preview cache and LibreOffice scratch data. The checked-in compose uses a larger `/tmp` and `/appdata` than the old lightweight image because the demo now exercises the real preview stack.
 
 ## Reverse Proxy Notes
 

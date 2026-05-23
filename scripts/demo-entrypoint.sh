@@ -16,6 +16,7 @@ reset_dir /appdata
 mkdir -p \
 	/data/demo/Documents/Reports \
 	/data/demo/Documents/Notes \
+	/data/demo/Documents/Office \
 	/data/demo/Photos/Travel \
 	/data/demo/Photos/Product \
 	/data/demo/Projects/Launch \
@@ -67,6 +68,30 @@ cat > /data/demo/Documents/Reports/release-readiness.md <<'EOF'
 - Store signing and listing setup.
 - Responsive web UI pass.
 - Public open source documentation.
+EOF
+
+cat > /data/demo/Documents/Office/demo-brief.rtf <<'EOF'
+{\rtf1\ansi\deff0
+{\fonttbl{\f0 Arial;}}
+\fs36\b goDrive Demo Brief\b0\par
+\fs24 This RTF document exercises the office preview pipeline through LibreOffice.\par
+\par
+\b Preview surfaces\b0\par
+- Image thumbnails\par
+- PDF first-page previews\par
+- Office document conversion\par
+- Text and Markdown previews\par
+}
+EOF
+
+cat > /data/demo/Documents/Office/storage-plan.doc <<'EOF'
+{\rtf1\ansi\deff0
+{\fonttbl{\f0 Arial;}}
+\fs32\b Storage Plan\b0\par
+\fs24 This legacy .doc fixture contains RTF content so the demo can show an office-like document without embedding private or binary assets.\par
+\par
+The production preview stack converts office documents to PDF and then renders the first page thumbnail.\par
+}
 EOF
 
 cat > /data/demo/Data/sample-customers.json <<'EOF'
@@ -208,5 +233,6 @@ EOF
 	--admin=true >/dev/null
 
 /usr/local/bin/godrive reindex --user "$GODRIVE_DEMO_USER" >/dev/null
+/usr/local/bin/godrive preview-warmup >/dev/null
 
 exec /usr/local/bin/godrive serve
