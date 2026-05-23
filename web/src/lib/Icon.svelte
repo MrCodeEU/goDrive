@@ -15,6 +15,7 @@
     image: '<path d="M21 16V8a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8"/><path d="m3 16 4-4a2 2 0 0 1 2.8 0L14 16"/><path d="m13 15 2-2a2 2 0 0 1 2.8 0L21 16"/><path d="M3 16v2a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-2"/>',
     list: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>',
     logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
+    menu: '<path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/>',
     move: '<path d="M5 9V5h4"/><path d="m5 5 6 6"/><path d="M19 15v4h-4"/><path d="m19 19-6-6"/><path d="M15 5h4v4"/><path d="m19 5-6 6"/><path d="M9 19H5v-4"/><path d="m5 19 6-6"/>',
     plus: '<path d="M12 5v14"/><path d="M5 12h14"/>',
     refresh: '<path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/>',

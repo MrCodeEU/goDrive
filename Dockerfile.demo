@@ -23,7 +23,8 @@ RUN apk add --no-cache ca-certificates tzdata \
 
 COPY --from=build /godrive /usr/local/bin/godrive
 COPY scripts/demo-entrypoint.sh /usr/local/bin/godrive-demo-entrypoint
-RUN chmod 0755 /usr/local/bin/godrive-demo-entrypoint
+COPY scripts/generate-demo-data.sh /usr/local/bin/generate-demo-data.sh
+RUN chmod 0755 /usr/local/bin/godrive-demo-entrypoint /usr/local/bin/generate-demo-data.sh
 
 USER 10001:10001
 VOLUME ["/data", "/appdata"]

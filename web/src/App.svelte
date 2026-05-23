@@ -19,6 +19,7 @@
     downloadBlob,
     fetchTextPreview,
     fetchExif,
+    fetchPublicConfig,
     type ExifData,
     joinPath,
     listAdminUsers,
@@ -92,8 +93,10 @@
   };
 
   let user: User | null = null;
-  let username = "admin";
+  let username = "";
   let password = "";
+  let demoLogin: { username: string; password: string } | null = null;
+  let demoMode = false;
   let loading = true;
   let busy = "";
   let error = "";
@@ -177,6 +180,7 @@
   let newKeyUserID = 0;
   let newKeyToken = "";
   let apiKeyBusy = "";
+  let mobileNavOpen = false;
 
   let fileEvents: AbortController | null = null;
   let liveRefreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -281,6 +285,7 @@
       }
     }, { rootMargin: '200px' });
 
+    void loadPublicConfig();
     void restoreSession();
     return () => {
       window.removeEventListener("popstate", onPopState);
@@ -310,6 +315,22 @@
     }
   }
 
+  async function loadPublicConfig() {
+    try {
+      const config = await fetchPublicConfig();
+      demoMode = config.demo_mode;
+      if (config.demo_mode && config.demo_user && config.demo_password) {
+        demoLogin = { username: config.demo_user, password: config.demo_password };
+        if (!currentToken() && !user && !username && !password) {
+          username = demoLogin.username;
+          password = demoLogin.password;
+        }
+      }
+    } catch {
+      // Public config is optional; keep the login form usable if it cannot load.
+    }
+  }
+
   async function submitLogin() {
     loading = true;
     error = "";
@@ -329,6 +350,11 @@
     await logout();
     stopFileEvents();
     user = null;
+    mobileNavOpen = false;
+    if (demoLogin) {
+      username = demoLogin.username;
+      password = demoLogin.password;
+    }
     entries = [];
     treeEntries = [];
     selectedIds = [];
@@ -801,6 +827,10 @@
   }
 
   async function runAdminJob(kind: "reindex" | "preview") {
+    if (demoMode) {
+      error = "Admin changes are disabled in demo mode";
+      return;
+    }
     if (adminJob?.status === "running") {
       error = "Another admin job is already running";
       return;
@@ -814,6 +844,10 @@
   }
 
   async function cancelRunningAdminJob() {
+    if (demoMode) {
+      error = "Admin changes are disabled in demo mode";
+      return;
+    }
     try {
       adminJob = (await cancelAdminJob()).job;
       startAdminPolling();
@@ -823,6 +857,10 @@
   }
 
   async function clearPreviewCacheFromAdmin() {
+    if (demoMode) {
+      error = "Admin changes are disabled in demo mode";
+      return;
+    }
     adminBusy = "Clearing preview cache";
     try {
       await clearPreviewCache();
@@ -835,6 +873,10 @@
   }
 
   async function saveAdminUser(item: User) {
+    if (demoMode) {
+      error = "Admin changes are disabled in demo mode";
+      return;
+    }
     adminBusy = `Saving ${item.username}`;
     try {
       await updateAdminUser(item.id, {
@@ -858,6 +900,10 @@
   }
 
   async function createUserFromAdmin() {
+    if (demoMode) {
+      error = "Admin changes are disabled in demo mode";
+      return;
+    }
     if (!newUser.username.trim() || !newUser.password) {
       error = "Username and password are required";
       return;
@@ -890,6 +936,10 @@
   }
 
   async function createNewAPIKey() {
+    if (demoMode) {
+      error = "Admin changes are disabled in demo mode";
+      return;
+    }
     if (!newKeyName.trim() || !newKeyUserID) return;
     apiKeyBusy = "Creating…";
     try {
@@ -906,6 +956,10 @@
   }
 
   async function revokeKey(id: string) {
+    if (demoMode) {
+      error = "Admin changes are disabled in demo mode";
+      return;
+    }
     apiKeyBusy = "Revoking…";
     try {
       await revokeAPIKey(id);
@@ -1498,12 +1552,13 @@
   </main>
 {:else}
   <main class="app" on:dragover={onDragOver} on:dragleave={onDragLeave} on:drop={onDrop}>
-    <aside class="sidebar">
+    {#if mobileNavOpen}<button class="mobile-scrim" type="button" aria-label="Close navigation" on:click={() => (mobileNavOpen = false)}></button>{/if}
+    <aside class="sidebar" class:mobile-open={mobileNavOpen}>
       <div class="brand">
         <strong>goDrive</strong>
         <span>{user.username}</span>
       </div>
-      <button class:active={currentPath === "/"} type="button" on:click={() => loadPath("/", { push: true })}><Icon name="folder" />My files</button>
+      <button class:active={currentPath === "/"} type="button" on:click={() => { mobileNavOpen = false; loadPath("/", { push: true }); }}><Icon name="folder" />My files</button>
       <div class="tree">
         {#if visibleTree.length === 0}
           <div class="tree-empty">No folders found</div>
@@ -1530,20 +1585,21 @@
               {#if treeChildPaths.has(row.path)}<Icon name={openTree.has(row.path) ? "chevronDown" : "chevronRight"} />{/if}
             </button>
             <button type="button" class="tree-link"
-              on:click={() => { if (treeChildPaths.has(row.path)) toggleTree(row.path); else loadPath(row.path, { push: true }); }}
-              on:dblclick={() => loadPath(row.path, { push: true })}
+              on:click={() => { if (treeChildPaths.has(row.path)) toggleTree(row.path); else { mobileNavOpen = false; loadPath(row.path, { push: true }); } }}
+              on:dblclick={() => { mobileNavOpen = false; loadPath(row.path, { push: true }); }}
             ><Icon name="folder" />{row.name}</button>
           </div>
           {/each}
         {/if}
       </div>
       <div class="sidebar-trash">
-        <button type="button" on:click={openTrash}><Icon name="trash" />Trash</button>
+        <button type="button" on:click={() => { mobileNavOpen = false; openTrash(); }}><Icon name="trash" />Trash</button>
       </div>
     </aside>
 
     <section class="workspace">
       <header class="topbar">
+        <button class="mobile-menu-button" type="button" aria-label="Open navigation" on:click={() => (mobileNavOpen = true)}><Icon name="menu" /></button>
         <form class="search" on:submit|preventDefault={submitSearch}>
           <span class="search-icon"><Icon name="search" /></span>
           <input bind:value={searchQuery} placeholder="Search files…" on:input={onSearchInput} on:focus={() => { if (searchQuery.trim()) searchOpen = true; }} readonly={searchOpen} />
@@ -1561,6 +1617,12 @@
       </header>
 
       {#if error}<div class="error" role="alert"><span>{error}</span><button type="button" on:click={() => (error = "")}>×</button></div>{/if}
+      {#if demoMode}
+        <div class="demo-banner" role="status">
+          <strong>Public demo</strong>
+          <span>Data is visible to anyone using this instance, resets on restart, and write/admin actions are disabled.</span>
+        </div>
+      {/if}
 
       <div class="pathbar">
         <div class="crumbs">
@@ -1987,6 +2049,9 @@
         <section class="modal-panel admin-panel">
           <header><h2>Admin</h2><button type="button" on:click={closeAdmin}>×</button></header>
           {#if stats}
+            {#if demoMode}
+              <p class="api-keys-hint">Demo admin mode is read-only. Stats, users, jobs, and API keys are visible, but admin actions are disabled.</p>
+            {/if}
             <div class="stats-grid">
               <article><span>Users</span><strong>{stats.users.total}</strong><small>{stats.users.disabled} disabled</small></article>
               <article><span>Indexed</span><strong>{stats.index.indexed_files}</strong><small>{stats.index.indexed_directories} folders</small></article>
@@ -1995,10 +2060,10 @@
             </div>
           {/if}
           <div class="commandbar">
-            <button type="button" disabled={adminJob?.status === "running"} on:click={() => runAdminJob("reindex")}>Full reindex</button>
-            <button type="button" disabled={adminJob?.status === "running"} on:click={() => runAdminJob("preview")}>Warm previews</button>
-            <button type="button" disabled={!adminJob?.cancelable || adminJob?.status !== "running"} on:click={cancelRunningAdminJob}>Cancel job</button>
-            <button type="button" on:click={clearPreviewCacheFromAdmin}>Clear preview cache</button>
+            <button type="button" disabled={demoMode || adminJob?.status === "running"} on:click={() => runAdminJob("reindex")}>Full reindex</button>
+            <button type="button" disabled={demoMode || adminJob?.status === "running"} on:click={() => runAdminJob("preview")}>Warm previews</button>
+            <button type="button" disabled={demoMode || !adminJob?.cancelable || adminJob?.status !== "running"} on:click={cancelRunningAdminJob}>Cancel job</button>
+            <button type="button" disabled={demoMode} on:click={clearPreviewCacheFromAdmin}>Clear preview cache</button>
           </div>
           {#if adminJob}
             <section class="job-panel">
@@ -2014,21 +2079,21 @@
             <div class="user-list">
               {#each adminUsers as item (item.id)}
                 <article>
-                  <input bind:value={item.username} />
-                  <input bind:value={item.home_root} />
-                  <label><input type="checkbox" bind:checked={item.is_admin} /> Admin</label>
-                  <label><input type="checkbox" bind:checked={item.disabled} /> Disabled</label>
-                  <input type="password" placeholder="New password" value={passwordReset[item.id] || ""} on:input={(event) => (passwordReset = { ...passwordReset, [item.id]: event.currentTarget.value })} />
-                  <button type="button" on:click={() => saveAdminUser(item)}>Save</button>
+                  <label class="admin-field"><span>Username</span><input bind:value={item.username} disabled={demoMode} /></label>
+                  <label class="admin-field"><span>Home root</span><input bind:value={item.home_root} disabled={demoMode} /></label>
+                  <label><input type="checkbox" bind:checked={item.is_admin} disabled={demoMode} /> Admin</label>
+                  <label><input type="checkbox" bind:checked={item.disabled} disabled={demoMode} /> Disabled</label>
+                  <label class="admin-field"><span>New password</span><input type="password" placeholder="Leave unchanged" value={passwordReset[item.id] || ""} disabled={demoMode} on:input={(event) => (passwordReset = { ...passwordReset, [item.id]: event.currentTarget.value })} /></label>
+                  <button type="button" disabled={demoMode} on:click={() => saveAdminUser(item)}>Save</button>
                 </article>
               {/each}
               <article class="new-user">
-                <input placeholder="Username" bind:value={newUser.username} />
-                <input placeholder="Home root" bind:value={newUser.home_root} />
-                <input type="password" placeholder="Password" bind:value={newUser.password} />
-                <label><input type="checkbox" bind:checked={newUser.is_admin} /> Admin</label>
-                <label><input type="checkbox" bind:checked={newUser.disabled} /> Disabled</label>
-                <button type="button" on:click={createUserFromAdmin}>Create</button>
+                <label class="admin-field"><span>Username</span><input placeholder="Username" bind:value={newUser.username} disabled={demoMode} /></label>
+                <label class="admin-field"><span>Home root</span><input placeholder="Home root" bind:value={newUser.home_root} disabled={demoMode} /></label>
+                <label class="admin-field"><span>Password</span><input type="password" placeholder="Password" bind:value={newUser.password} disabled={demoMode} /></label>
+                <label><input type="checkbox" bind:checked={newUser.is_admin} disabled={demoMode} /> Admin</label>
+                <label><input type="checkbox" bind:checked={newUser.disabled} disabled={demoMode} /> Disabled</label>
+                <button type="button" disabled={demoMode} on:click={createUserFromAdmin}>Create</button>
               </article>
             </div>
           </section>
@@ -2053,7 +2118,7 @@
                     {#if key.revoked_at}<span class="api-key-revoked">Revoked {formatDate(key.revoked_at)}</span>{/if}
                   </div>
                   {#if !key.revoked_at}
-                    <button type="button" class="danger" on:click={() => revokeKey(key.id)}>Revoke</button>
+                    <button type="button" class="danger" disabled={demoMode} on:click={() => revokeKey(key.id)}>Revoke</button>
                   {/if}
                 </article>
               {:else}
@@ -2061,14 +2126,14 @@
               {/each}
             </div>
             <article class="new-api-key">
-              <select bind:value={newKeyUserID}>
+              <select bind:value={newKeyUserID} disabled={demoMode}>
                 <option value={0} disabled>Select user…</option>
                 {#each adminUsers as u (u.id)}
                   <option value={u.id}>{u.username}</option>
                 {/each}
               </select>
-              <input placeholder="Key name (e.g. My Organizer App)" bind:value={newKeyName} />
-              <button type="button" on:click={createNewAPIKey} disabled={!newKeyName.trim() || !newKeyUserID}>Create</button>
+              <input placeholder="Key name (e.g. My Organizer App)" bind:value={newKeyName} disabled={demoMode} />
+              <button type="button" on:click={createNewAPIKey} disabled={demoMode || !newKeyName.trim() || !newKeyUserID}>Create</button>
             </article>
           </section>
         </section>

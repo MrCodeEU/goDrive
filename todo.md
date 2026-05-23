@@ -199,6 +199,16 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
   - Watcher/reconciliation.
   - Mobile background uploads.
 
+## Web UI Responsiveness
+
+- [ ] Treat the web app as desktop-first until a responsive pass is complete.
+- [ ] Redesign the web app visually while keeping it dense, practical, and file-manager focused.
+- [ ] Add a mobile navigation model for the sidebar, path bar, search, uploads, trash, and admin entry points.
+- [ ] Make file grid/list/masonry views usable on phone widths without text overlap or horizontal scrolling.
+- [ ] Rework action toolbars into touch-friendly grouped controls.
+- [ ] Make preview, info, trash, admin, upload queue, and modal dialogs fit small screens.
+- [ ] Add viewport checks for phone, tablet, and desktop to the release gate.
+
 ## Demo Instance
 
 - [x] Design a public demo instance strategy.
@@ -219,9 +229,20 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
 - [x] Decide demo hosting.
   - Home lab via `MrCodeEU/homelab-automation` repository dispatch.
 - [x] Add demo seed data generation.
-  - Small but representative folder tree.
-  - Images, videos, PDFs, text, Markdown, office-like files, and 3D models.
+  - Expanded representative folder tree.
+  - Images, reports, notes, structured data, and project/design samples.
   - No copyrighted/private content.
+- [x] Expand demo seed data further.
+  - [x] More varied image-like samples.
+  - [x] More nested folders.
+  - [x] More realistic documents, CSV, JSON, Markdown, code snippets, and release/store assets.
+  - [x] Simple generated 3D OBJ fixtures.
+  - [x] Tunable generation counts for image/model/deep-folder volume.
+- [x] Add limited read-only demo admin mode.
+  - Demo account is admin so the UI is visible.
+  - Read-only admin GET endpoints stay available.
+  - Admin mutations remain blocked by demo mode.
+- [x] Reindex demo data during startup so search and text/Markdown/CSV preview metadata are ready immediately.
 - [ ] Add demo reset implementation.
   - Immutable seed volume or object store.
   - [x] Reset-on-container-start with `tmpfs` data/appdata.
@@ -232,7 +253,7 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
   - Disable or sandbox risky admin features.
   - Short sessions.
   - Strict upload limits.
-  - [ ] Clear in-app banner that data is public and reset regularly.
+  - [x] Clear in-app banner that data is public and reset regularly.
 
 ## Suggested Work Order
 

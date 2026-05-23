@@ -100,6 +100,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /", s.index)
 	mux.Handle("GET /assets/", s.assets())
 	mux.HandleFunc("GET /health", s.health)
+	mux.HandleFunc("GET /api/public/config", s.publicConfig)
 
 	mux.HandleFunc("POST /api/auth/login", s.login)
 	mux.HandleFunc("POST /api/auth/logout", s.withUser(s.logout))
@@ -181,8 +182,14 @@ func (s *Server) demoModeBlocks(w http.ResponseWriter, r *http.Request) bool {
 		writeError(w, http.StatusForbidden, "WebDAV is disabled in demo mode")
 		return true
 	}
-	if strings.HasPrefix(r.URL.Path, "/api/admin/") ||
-		r.URL.Path == "/api/webhooks" || strings.HasPrefix(r.URL.Path, "/api/webhooks/") ||
+	if strings.HasPrefix(r.URL.Path, "/api/admin/") {
+		if r.Method == http.MethodGet {
+			return false
+		}
+		writeError(w, http.StatusForbidden, "admin changes are disabled in demo mode")
+		return true
+	}
+	if r.URL.Path == "/api/webhooks" || strings.HasPrefix(r.URL.Path, "/api/webhooks/") ||
 		strings.HasPrefix(r.URL.Path, "/api/tus") ||
 		r.URL.Path == "/api/trash" || strings.HasPrefix(r.URL.Path, "/api/trash/") {
 		writeError(w, http.StatusForbidden, "this action is disabled in demo mode")
@@ -214,6 +221,15 @@ func (s *Server) demoModeBlocks(w http.ResponseWriter, r *http.Request) bool {
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) publicConfig(w http.ResponseWriter, r *http.Request) {
+	payload := map[string]any{"demo_mode": s.cfg.DemoMode}
+	if s.cfg.DemoMode {
+		payload["demo_user"] = s.cfg.DemoUser
+		payload["demo_password"] = s.cfg.DemoPassword
+	}
+	writeJSON(w, http.StatusOK, payload)
 }
 
 func (s *Server) securityHeaders(next http.Handler) http.Handler {

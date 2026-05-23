@@ -22,6 +22,12 @@ export type LoginResponse = {
   user: User;
 };
 
+export type PublicConfig = {
+  demo_mode: boolean;
+  demo_user?: string;
+  demo_password?: string;
+};
+
 export type ListResponse = {
   path: string;
   entries: FileEntry[];
@@ -168,6 +174,10 @@ export async function login(username: string, password: string) {
   });
   setToken(response.token);
   return response.user;
+}
+
+export async function fetchPublicConfig() {
+  return api<PublicConfig>("/api/public/config");
 }
 
 export async function logout() {

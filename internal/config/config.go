@@ -38,6 +38,8 @@ type Config struct {
 	WebhookAllowHTTP       bool
 	WebhookAllowPrivate    bool
 	DemoMode               bool
+	DemoUser               string
+	DemoPassword           string
 	DevLatencyMin          time.Duration
 	DevLatencyMax          time.Duration
 }
@@ -116,6 +118,8 @@ func Load() (Config, error) {
 		WebhookAllowHTTP:       envBool("GODRIVE_WEBHOOK_ALLOW_HTTP", false),
 		WebhookAllowPrivate:    envBool("GODRIVE_WEBHOOK_ALLOW_PRIVATE", false),
 		DemoMode:               envBool("GODRIVE_DEMO_MODE", false),
+		DemoUser:               env("GODRIVE_DEMO_USER", "demo"),
+		DemoPassword:           env("GODRIVE_DEMO_PASSWORD", "demo"),
 		DevLatencyMin:          devLatencyMin,
 		DevLatencyMax:          devLatencyMax,
 	}

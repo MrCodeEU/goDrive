@@ -6,8 +6,11 @@ The demo deployment is intentionally separate from the normal production Docker 
 
 - Login with the demo account.
 - Browse seeded files.
-- Search indexed files after the first index run.
-- Preview/download safe sample files.
+- Search indexed files immediately after startup.
+- Preview/download safe sample files, including SVG image samples, Markdown, CSV, JSON, and project notes.
+- Prefill the web login form with demo credentials.
+- Open a read-only admin UI with stats, users, current job state, and API key list visible.
+- Show an in-app banner that warns users the instance is public, disposable, and read-only.
 
 Default credentials:
 
@@ -21,7 +24,7 @@ password: demo
 When `GODRIVE_DEMO_MODE=true`, the server rejects:
 
 - WebDAV.
-- Admin APIs.
+- Admin mutation APIs. Read-only admin endpoints stay enabled so the demo can show the admin UI.
 - Webhook APIs.
 - TUS uploads.
 - Trash mutations.
@@ -29,6 +32,8 @@ When `GODRIVE_DEMO_MODE=true`, the server rejects:
 - API key management.
 
 The demo container also omits LibreOffice, ffmpeg, poppler, and libvips to reduce container attack surface. It should not be used to validate full preview-tool behavior.
+
+The seed dataset is generated locally at container startup. It includes hundreds of deterministic SVG image samples, a deeply nested folder tree, Markdown/CSV/JSON/code fixtures, store-copy examples, and simple OBJ 3D models. The defaults can be adjusted with `GODRIVE_DEMO_IMAGE_COUNT`, `GODRIVE_DEMO_NESTED_DEPTH`, and `GODRIVE_DEMO_MODEL_COUNT`.
 
 ## Run Locally
 

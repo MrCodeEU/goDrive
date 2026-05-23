@@ -41,6 +41,7 @@ Legend:
 | API key authentication | Yes | Yes | Yes | Yes | Yes |
 | Cookie/session authentication | Yes | N/A | N/A | Partial | N/A |
 | Basic authentication | N/A | N/A | N/A | Yes | N/A |
+| Responsive phone web UI | Planned | N/A | N/A | N/A | N/A |
 
 ## Admin And Operations
 
@@ -62,6 +63,8 @@ Legend:
 
 Generic WebDAV is a file-access compatibility surface for Finder, iOS Files, rclone, and similar clients. It intentionally does not expose goDrive search, admin operations, trash management UI, previews, EXIF panels, webhook management, or API key management. Those features belong to the web/mobile apps or CLI.
 
+The web UI is currently a desktop-first surface. A responsive phone layout is release-blocking for the public web app, but the native Android and iOS apps remain the primary phone experience until that work is complete.
+
 Nextcloud-compatible previews are possible as a future compatibility layer, but they should be separate from generic `/dav` behavior. A future implementation would likely expose Nextcloud-style capability and preview endpoints, such as OCS capability discovery and `/index.php/core/preview`, while keeping `/dav` focused on file operations.
 
 Mobile uses the platform for some file-opening workflows. PDF, Office, 3D, and selected-file downloads are opened externally rather than fully rendered or packaged inside the app. This is intentional until native viewers or in-app ZIP handling provide a better mobile experience than the operating system.
@@ -71,6 +74,7 @@ The CLI is an operator and maintenance surface, not a daily file-browsing client
 ## Known Remaining Parity Work
 
 - Harden Android and iOS background uploads on physical devices before store release.
+- Redesign the web shell, toolbars, file lists, dialogs, and preview viewer for phone and tablet breakpoints.
 - Decide whether mobile should eventually add in-app PDF/Office/3D viewers.
 - Decide whether mobile should eventually save multi-file selections as a local ZIP instead of opening selected downloads externally.
 - Add a Nextcloud-compatible preview/capabilities layer if compatibility with clients that expect Nextcloud preview APIs becomes a project goal.
