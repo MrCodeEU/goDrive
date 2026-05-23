@@ -1491,6 +1491,13 @@
     return entry.preview_kind === "image" && viewerOriginal ? rawFileURL(entry.path) : thumbnailURL(entry.path, 2048);
   }
 
+  function imagePreviewFallback(event: Event, entry: FileEntry) {
+    if (entry.preview_kind !== "image") return;
+    const image = event.currentTarget as HTMLImageElement;
+    const raw = rawFileURL(entry.path);
+    if (image.src !== raw) image.src = raw;
+  }
+
   function jobProgress(job: AdminJob) {
     const deleted = job.deleted ? `, ${job.deleted} deleted` : "";
     return job.total_known ? `${job.done}/${job.total}${deleted}` : `${job.done} indexed${deleted}`;
@@ -1751,7 +1758,7 @@
                   {#if entry.type === "dir"}
                     <span class="folder-icon"></span>
                   {:else if thumbnailKinds.has(entry.preview_kind || "")}
-                    <img src={previewURL(entry)} alt="" loading="lazy" />
+                    <img src={previewURL(entry)} alt="" loading="lazy" on:error={(event) => imagePreviewFallback(event, entry)} />
                   {:else if (entry.preview_kind === "text" || entry.preview_kind === "markdown") && entry.snippet}
                     <span class="text-thumb"><span class="text-thumb-content">{entry.snippet}</span></span>
                   {:else if entry.preview_kind === "3d"}
@@ -1784,7 +1791,7 @@
                         {#if entry.type === "dir"}
                           <span class="mini-folder"></span>
                         {:else if thumbnailKinds.has(entry.preview_kind || "")}
-                          <img src={previewURL(entry, 128)} alt="" loading="lazy" />
+                          <img src={previewURL(entry, 128)} alt="" loading="lazy" on:error={(event) => imagePreviewFallback(event, entry)} />
                         {:else}
                           <Icon name={fileIconName(entry)} />
                         {/if}
@@ -1826,7 +1833,7 @@
                 <button type="button" class="search-result" on:click={() => { searchOpen = false; if (result.type === "dir") { loadPath(result.path, { push: true }); } else { loadPath(parentPath(result.path), { push: true }); setTimeout(() => openEntry(result), 400); } }}>
                   <div class="search-result-thumb" class:dir={result.type === "dir"}>
                     {#if thumbnailKinds.has(result.preview_kind || "")}
-                      <img src={thumbnailURL(result.path, 128)} alt="" loading="lazy" />
+                      <img src={previewURL(result, 128)} alt="" loading="lazy" on:error={(event) => imagePreviewFallback(event, result)} />
                     {:else if result.type === "dir"}
                       <span class="mini-folder"></span>
                     {:else}
@@ -1904,7 +1911,7 @@
           <div class="viewer-content">
             {#if viewerFile.preview_kind === "image" || viewerFile.preview_kind === "raw" || viewerFile.preview_kind === "office"}
               <div class="viewer-stage">
-                <img style={`transform: scale(${viewerZoom})`} src={viewerImageURL(viewerFile)} alt={viewerFile.name} />
+                <img style={`transform: scale(${viewerZoom})`} src={viewerImageURL(viewerFile)} alt={viewerFile.name} on:error={(event) => viewerFile && imagePreviewFallback(event, viewerFile)} />
               </div>
               {#if viewerFile.preview_kind === "image" || viewerFile.preview_kind === "raw"}
                 <button class="viewer-nav viewer-nav-prev" type="button" title="Previous (←)" on:click={() => showAdjacentImage(-1)}><Icon name="chevronLeft" /></button>
