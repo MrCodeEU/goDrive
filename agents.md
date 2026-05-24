@@ -39,6 +39,12 @@ act -W .github/workflows/security.yml -j docker-image --input docker_image_scan=
 
 Use `-n` for a dry-run when checking workflow shape without executing commands. Use GitHub-hosted runners for release publishing and iOS/macOS builds. iOS cannot be realistically validated through `act` on Linux. Before pushing workflow changes, run `act -l` and the relevant Linux jobs locally when practical.
 
+When backend routes or API response shapes change, update `docs/openapi.yaml` in the same patch and run:
+
+```bash
+make api-contract
+```
+
 ## Commands
 
 ### Backend

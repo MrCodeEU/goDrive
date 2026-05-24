@@ -1,0 +1,1254 @@
+openapi: 3.1.0
+info:
+  title: goDrive API
+  version: 0.1.0
+  description: REST, SSE, and TUS endpoints for the goDrive web and mobile clients.
+servers:
+  - url: /
+security:
+  - bearerAuth: []
+  - sessionCookie: []
+tags:
+  - name: Public
+  - name: Auth
+  - name: Events
+  - name: Files
+  - name: Trash
+  - name: Admin
+  - name: API Keys
+  - name: Webhooks
+  - name: TUS
+paths:
+  /api/public/config:
+    get:
+      tags: [Public]
+      security: []
+      summary: Return public instance configuration.
+      responses:
+        "200":
+          description: Public configuration.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicConfig"
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Create a session with username and password.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Session created.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+
+  /api/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoke the current session and clear cookies.
+      responses:
+        "200":
+          $ref: "#/components/responses/Status"
+        "401":
+          $ref: "#/components/responses/Error"
+
+  /api/me:
+    get:
+      tags: [Auth]
+      summary: Return the authenticated user.
+      responses:
+        "200":
+          description: Current user.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/User"
+                  session_id:
+                    type: string
+        "401":
+          $ref: "#/components/responses/Error"
+
+  /api/events:
+    get:
+      tags: [Events]
+      summary: Subscribe to per-user live update events.
+      responses:
+        "200":
+          description: Server-sent event stream.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Error"
+
+  /api/files/list:
+    get:
+      tags: [Files]
+      summary: List a folder.
+      parameters:
+        - $ref: "#/components/parameters/PathQuery"
+        - $ref: "#/components/parameters/OffsetQuery"
+        - $ref: "#/components/parameters/LimitQuery"
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Folder page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListResponse"
+
+  /api/files/tree:
+    get:
+      tags: [Files]
+      summary: Return all indexed/listable directories for tree navigation.
+      responses:
+        "200":
+          description: Directory entries.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entries]
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FileEntry"
+
+  /api/files/search:
+    get:
+      tags: [Files]
+      summary: Search indexed files and folders.
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+        - $ref: "#/components/parameters/LimitQuery"
+      responses:
+        "200":
+          description: Search results.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResponse"
+
+  /api/files/mkdir:
+    post:
+      tags: [Files]
+      summary: Create a folder.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path:
+                  type: string
+      responses:
+        "201":
+          $ref: "#/components/responses/FileEntryResponse"
+
+  /api/files/download:
+    get:
+      tags: [Files]
+      summary: Download a file as an attachment.
+      parameters:
+        - $ref: "#/components/parameters/PathQuery"
+      responses:
+        "200":
+          description: File bytes.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+  /api/files/raw:
+    get:
+      tags: [Files]
+      summary: Stream a file inline when safe.
+      parameters:
+        - $ref: "#/components/parameters/PathQuery"
+      responses:
+        "200":
+          description: File bytes.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+  /api/files/text:
+    get:
+      tags: [Files]
+      summary: Return a bounded text preview.
+      parameters:
+        - $ref: "#/components/parameters/PathQuery"
+      responses:
+        "200":
+          description: Text preview.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TextPreview"
+
+  /api/files/exif:
+    get:
+      tags: [Files]
+      summary: Return image or RAW EXIF metadata.
+      parameters:
+        - $ref: "#/components/parameters/PathQuery"
+      responses:
+        "200":
+          description: EXIF data.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExifData"
+        "415":
+          $ref: "#/components/responses/Error"
+
+  /api/files/thumbnail:
+    get:
+      tags: [Files]
+      summary: Return or generate a cached preview image.
+      parameters:
+        - $ref: "#/components/parameters/PathQuery"
+        - $ref: "#/components/parameters/SizeQuery"
+      responses:
+        "200":
+          description: Preview image bytes.
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+
+  /api/files/move:
+    post:
+      tags: [Files]
+      summary: Move or rename a file or folder.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from, to]
+              properties:
+                from:
+                  type: string
+                to:
+                  type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/FileEntryResponse"
+
+  /api/files:
+    delete:
+      tags: [Files]
+      summary: Move a file or folder to trash.
+      parameters:
+        - $ref: "#/components/parameters/PathQuery"
+      responses:
+        "200":
+          description: Trash item created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [trash_item]
+                properties:
+                  trash_item:
+                    $ref: "#/components/schemas/TrashItem"
+
+  /api/files/bulk/delete:
+    post:
+      tags: [Files]
+      summary: Move multiple files or folders to trash.
+      requestBody:
+        $ref: "#/components/requestBodies/BulkPaths"
+      responses:
+        "200":
+          $ref: "#/components/responses/BulkResults"
+
+  /api/files/bulk/move:
+    post:
+      tags: [Files]
+      summary: Move multiple files or folders into a target directory.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [paths, target_dir]
+              properties:
+                paths:
+                  type: array
+                  items:
+                    type: string
+                target_dir:
+                  type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/BulkResults"
+
+  /api/files/bulk/download:
+    post:
+      tags: [Files]
+      summary: Download multiple files or folders as a ZIP archive.
+      requestBody:
+        $ref: "#/components/requestBodies/BulkPaths"
+      responses:
+        "200":
+          description: ZIP archive.
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+
+  /api/files/content:
+    patch:
+      tags: [Files]
+      summary: Replace text file content.
+      parameters:
+        - $ref: "#/components/parameters/PathQuery"
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
+      responses:
+        "200":
+          description: Saved file metadata.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [path, modified_at]
+                properties:
+                  path:
+                    type: string
+                  modified_at:
+                    type: string
+                    format: date-time
+
+  /api/trash:
+    get:
+      tags: [Trash]
+      summary: List trash items.
+      responses:
+        "200":
+          description: Trash items.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TrashItem"
+
+  /api/trash/{id}/thumbnail:
+    get:
+      tags: [Trash]
+      summary: Return a cached thumbnail for a trash item.
+      parameters:
+        - $ref: "#/components/parameters/IDPath"
+        - $ref: "#/components/parameters/SizeQuery"
+      responses:
+        "200":
+          description: Preview image bytes.
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+
+  /api/trash/{id}/restore:
+    post:
+      tags: [Trash]
+      summary: Restore a trash item.
+      parameters:
+        - $ref: "#/components/parameters/IDPath"
+      responses:
+        "200":
+          $ref: "#/components/responses/FileEntryResponse"
+
+  /api/trash/{id}:
+    delete:
+      tags: [Trash]
+      summary: Permanently delete a trash item.
+      parameters:
+        - $ref: "#/components/parameters/IDPath"
+      responses:
+        "200":
+          $ref: "#/components/responses/Status"
+
+  /api/admin/users:
+    get:
+      tags: [Admin]
+      summary: List users.
+      responses:
+        "200":
+          description: Users.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [users]
+                properties:
+                  users:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/User"
+    post:
+      tags: [Admin]
+      summary: Create a user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+      responses:
+        "201":
+          description: Created user.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/User"
+
+  /api/admin/users/{id}:
+    patch:
+      tags: [Admin]
+      summary: Update a user.
+      parameters:
+        - $ref: "#/components/parameters/NumericIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+      responses:
+        "200":
+          description: Updated user.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/User"
+
+  /api/admin/users/{id}/password:
+    post:
+      tags: [Admin]
+      summary: Set a user's password.
+      parameters:
+        - $ref: "#/components/parameters/NumericIDPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/Status"
+
+  /api/admin/stats:
+    get:
+      tags: [Admin]
+      summary: Return admin dashboard statistics.
+      responses:
+        "200":
+          description: Admin stats.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminStats"
+
+  /api/admin/jobs/current:
+    get:
+      tags: [Admin]
+      summary: Return the current admin job, if any.
+      responses:
+        "200":
+          description: Current job.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminJobResponseNullable"
+
+  /api/admin/jobs/cancel:
+    post:
+      tags: [Admin]
+      summary: Cancel the current admin job.
+      responses:
+        "202":
+          $ref: "#/components/responses/AdminJobResponse"
+
+  /api/admin/jobs/reindex:
+    post:
+      tags: [Admin]
+      summary: Start a full or scoped reindex job.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                path:
+                  type: string
+      responses:
+        "202":
+          $ref: "#/components/responses/AdminJobResponse"
+
+  /api/admin/jobs/preview-warmup:
+    post:
+      tags: [Admin]
+      summary: Start preview cache warmup.
+      responses:
+        "202":
+          $ref: "#/components/responses/AdminJobResponse"
+
+  /api/admin/preview-cache:
+    delete:
+      tags: [Admin]
+      summary: Clear the preview cache.
+      responses:
+        "200":
+          $ref: "#/components/responses/Status"
+
+  /api/admin/api-keys:
+    get:
+      tags: [API Keys]
+      summary: List API keys.
+      responses:
+        "200":
+          description: API keys.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [api_keys]
+                properties:
+                  api_keys:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/APIKey"
+    post:
+      tags: [API Keys]
+      summary: Create an API key.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id, name]
+              properties:
+                user_id:
+                  type: integer
+                  format: int64
+                name:
+                  type: string
+      responses:
+        "201":
+          description: API key and one-time token.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [api_key, token]
+                properties:
+                  api_key:
+                    $ref: "#/components/schemas/APIKey"
+                  token:
+                    type: string
+
+  /api/admin/api-keys/{id}:
+    delete:
+      tags: [API Keys]
+      summary: Revoke an API key.
+      parameters:
+        - $ref: "#/components/parameters/IDPath"
+      responses:
+        "200":
+          $ref: "#/components/responses/Status"
+
+  /api/webhooks:
+    get:
+      tags: [Webhooks]
+      summary: List webhooks.
+      responses:
+        "200":
+          description: Webhooks.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [webhooks]
+                properties:
+                  webhooks:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Webhook"
+    post:
+      tags: [Webhooks]
+      summary: Create a webhook.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWebhookRequest"
+      responses:
+        "201":
+          description: Created webhook and one-time secret.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [webhook, secret]
+                properties:
+                  webhook:
+                    $ref: "#/components/schemas/Webhook"
+                  secret:
+                    type: string
+
+  /api/webhooks/{id}:
+    delete:
+      tags: [Webhooks]
+      summary: Delete a webhook.
+      parameters:
+        - $ref: "#/components/parameters/IDPath"
+      responses:
+        "200":
+          $ref: "#/components/responses/Status"
+
+  /api/webhooks/{id}/test:
+    post:
+      tags: [Webhooks]
+      summary: Send a test webhook delivery.
+      parameters:
+        - $ref: "#/components/parameters/IDPath"
+      responses:
+        "200":
+          $ref: "#/components/responses/Status"
+        "502":
+          $ref: "#/components/responses/Error"
+
+  /api/tus:
+    post:
+      tags: [TUS]
+      summary: Create a TUS upload.
+      parameters:
+        - name: path
+          in: query
+          schema:
+            type: string
+          description: Target directory.
+      requestBody:
+        required: false
+        content:
+          application/offset+octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "201":
+          description: Upload created.
+          headers:
+            Location:
+              schema:
+                type: string
+            Upload-Offset:
+              schema:
+                type: integer
+                format: int64
+        "413":
+          $ref: "#/components/responses/Error"
+
+  /api/tus/{id}:
+    head:
+      tags: [TUS]
+      summary: Return current upload offset.
+      parameters:
+        - $ref: "#/components/parameters/IDPath"
+      responses:
+        "204":
+          description: Offset returned in headers.
+    patch:
+      tags: [TUS]
+      summary: Append a TUS upload chunk.
+      parameters:
+        - $ref: "#/components/parameters/IDPath"
+      requestBody:
+        required: true
+        content:
+          application/offset+octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "204":
+          description: Chunk accepted.
+          headers:
+            Upload-Offset:
+              schema:
+                type: integer
+                format: int64
+            Upload-Final-Path:
+              schema:
+                type: string
+    delete:
+      tags: [TUS]
+      summary: Cancel and remove an upload.
+      parameters:
+        - $ref: "#/components/parameters/IDPath"
+      responses:
+        "204":
+          description: Upload removed.
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: godrive_session
+  parameters:
+    PathQuery:
+      name: path
+      in: query
+      required: true
+      schema:
+        type: string
+        default: /
+    OffsetQuery:
+      name: offset
+      in: query
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+    LimitQuery:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 2000
+        default: 500
+    SizeQuery:
+      name: size
+      in: query
+      schema:
+        type: integer
+        default: 420
+    IDPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    NumericIDPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+  requestBodies:
+    BulkPaths:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [paths]
+            properties:
+              paths:
+                type: array
+                items:
+                  type: string
+  responses:
+    Error:
+      description: Error response.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Status:
+      description: Status response.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [status]
+            properties:
+              status:
+                type: string
+    FileEntryResponse:
+      description: File entry response.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [entry]
+            properties:
+              entry:
+                $ref: "#/components/schemas/FileEntry"
+    BulkResults:
+      description: Per-path operation results.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [results]
+            properties:
+              results:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BulkResult"
+    AdminJobResponse:
+      description: Admin job response.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [job]
+            properties:
+              job:
+                $ref: "#/components/schemas/AdminJob"
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    PublicConfig:
+      type: object
+      required: [demo_mode]
+      properties:
+        demo_mode:
+          type: boolean
+        demo_user:
+          type: string
+        demo_password:
+          type: string
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+    LoginResponse:
+      type: object
+      required: [token, user]
+      properties:
+        token:
+          type: string
+        csrf_token:
+          type: string
+        session_id:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        user:
+          $ref: "#/components/schemas/User"
+    User:
+      type: object
+      required: [id, username, is_admin, disabled, home_root]
+      properties:
+        id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        is_admin:
+          type: boolean
+        disabled:
+          type: boolean
+        home_root:
+          type: string
+    FileEntry:
+      type: object
+      required: [name, path, type, size, modified_at]
+      properties:
+        name:
+          type: string
+        path:
+          type: string
+        type:
+          type: string
+          enum: [file, dir]
+        size:
+          type: integer
+          format: int64
+        modified_at:
+          type: string
+          format: date-time
+        mime_type:
+          type: string
+        preview_kind:
+          type: string
+          enum: [image, raw, video, pdf, text, markdown, office, model]
+        snippet:
+          type: string
+    ListResponse:
+      type: object
+      required: [path, entries, total, offset, limit, has_more]
+      properties:
+        path:
+          type: string
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileEntry"
+        total:
+          type: integer
+        offset:
+          type: integer
+        limit:
+          type: integer
+        has_more:
+          type: boolean
+        next_cursor:
+          type: string
+        source:
+          type: string
+          enum: [index]
+    SearchResponse:
+      type: object
+      required: [query, entries]
+      properties:
+        query:
+          type: string
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileEntry"
+    TextPreview:
+      type: object
+      required: [path, name, size, truncated, max_bytes, content, mime_type, modified_at]
+      properties:
+        path:
+          type: string
+        name:
+          type: string
+        size:
+          type: integer
+          format: int64
+        truncated:
+          type: boolean
+        max_bytes:
+          type: integer
+        content:
+          type: string
+        mime_type:
+          type: string
+        modified_at:
+          type: string
+          format: date-time
+    ExifData:
+      type: object
+      required: [fields, has_gps]
+      properties:
+        fields:
+          type: object
+          additionalProperties: true
+        gps_lat:
+          type: number
+        gps_lon:
+          type: number
+        has_gps:
+          type: boolean
+    TrashItem:
+      type: object
+      required: [id, user_id, original_path, original_name, is_dir, size, deleted_at]
+      properties:
+        id:
+          type: string
+        user_id:
+          type: integer
+          format: int64
+        original_path:
+          type: string
+        original_name:
+          type: string
+        is_dir:
+          type: boolean
+        size:
+          type: integer
+          format: int64
+        deleted_at:
+          type: string
+          format: date-time
+    BulkResult:
+      type: object
+      required: [path, ok]
+      properties:
+        path:
+          type: string
+        ok:
+          type: boolean
+        error:
+          type: string
+        entry:
+          $ref: "#/components/schemas/FileEntry"
+    CreateUserRequest:
+      type: object
+      required: [username, password, home_root]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        home_root:
+          type: string
+        is_admin:
+          type: boolean
+        disabled:
+          type: boolean
+    UpdateUserRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        home_root:
+          type: string
+        is_admin:
+          type: boolean
+        disabled:
+          type: boolean
+    AdminJob:
+      type: object
+      required: [id, type, status, started_at, total, total_known, done, failed, message]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        status:
+          type: string
+          enum: [running, done, failed, canceled]
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        total:
+          type: integer
+        total_known:
+          type: boolean
+        done:
+          type: integer
+        failed:
+          type: integer
+        deleted:
+          type: integer
+        user:
+          type: string
+        scope:
+          type: string
+        cancelable:
+          type: boolean
+        message:
+          type: string
+    AdminJobResponseNullable:
+      type: object
+      required: [job]
+      properties:
+        job:
+          anyOf:
+            - $ref: "#/components/schemas/AdminJob"
+            - type: "null"
+    PreviewToolStatus:
+      type: object
+      required: [name, purpose, available]
+      properties:
+        name:
+          type: string
+        purpose:
+          type: string
+        available:
+          type: boolean
+        path:
+          type: string
+        error:
+          type: string
+    AdminStats:
+      type: object
+      properties:
+        users:
+          type: object
+          properties:
+            total:
+              type: integer
+            disabled:
+              type: integer
+        index:
+          type: object
+          properties:
+            indexed_files:
+              type: integer
+            indexed_directories:
+              type: integer
+            indexed_bytes:
+              type: integer
+            preview_candidates:
+              type: integer
+        trash:
+          type: object
+          properties:
+            items:
+              type: integer
+            bytes:
+              type: integer
+        preview_cache:
+          type: object
+          properties:
+            files:
+              type: integer
+            bytes:
+              type: integer
+        preview:
+          type: object
+          properties:
+            workers:
+              type: integer
+            sizes:
+              type: array
+              items:
+                type: integer
+            tools:
+              type: array
+              items:
+                $ref: "#/components/schemas/PreviewToolStatus"
+        watcher:
+          type: object
+          additionalProperties: true
+        reconciliation:
+          type: object
+          additionalProperties: true
+        current_job:
+          anyOf:
+            - $ref: "#/components/schemas/AdminJob"
+            - type: "null"
+    APIKey:
+      type: object
+      required: [id, user_id, name, created_at]
+      properties:
+        id:
+          type: string
+        user_id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+    Webhook:
+      type: object
+      required: [id, url, events, description, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        url:
+          type: string
+          format: uri
+        events:
+          type: array
+          items:
+            type: string
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateWebhookRequest:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+        events:
+          type: array
+          items:
+            type: string
+        description:
+          type: string

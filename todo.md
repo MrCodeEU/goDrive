@@ -122,7 +122,8 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
 ## Architecture And Maintainability
 
 - [ ] Centralize the API contract.
-  - Add OpenAPI or another schema source of truth.
+  - [x] Add OpenAPI or another schema source of truth.
+  - [x] Add route coverage validation so implemented API routes stay documented.
   - Generate or validate web TypeScript types and Flutter models against it.
   - Reduce drift between backend handlers, web API client, Flutter API client, Kotlin service, and Swift uploader.
 - [ ] Version and isolate the mobile upload queue schema.

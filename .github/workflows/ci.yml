@@ -44,6 +44,9 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: API contract
+        run: ruby scripts/check-openapi-routes.rb
+
       - name: Test
         run: go test -count=1 ./...
 

@@ -71,6 +71,8 @@ For a disposable public demo deployment, use the hardened demo compose profile i
 
 Hosted GitHub Actions are kept focused on release orchestration, scheduled security checks, Docker publishing, and iOS/macOS builds. Routine Linux workflow checks should be run locally first with `make` and `act`; see [Local CI and GitHub Actions](docs/ci-local.md).
 
+The REST/SSE/TUS API contract lives in [OpenAPI](docs/openapi.yaml). See [API Contract](docs/api-contract.md) for the local validation workflow.
+
 ## Mobile (Android)
 
 ```sh
