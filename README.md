@@ -81,6 +81,8 @@ Hosted GitHub Actions are kept focused on release orchestration, scheduled secur
 
 The REST/SSE/TUS API contract lives in [OpenAPI](docs/openapi.yaml). Web schema types are generated from it, and Flutter model drift is checked locally; see [API Contract](docs/api-contract.md).
 
+For a high-level system overview, see [Architecture](docs/architecture.md).
+
 ## Mobile (Android)
 
 ```sh

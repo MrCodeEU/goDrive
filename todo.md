@@ -204,13 +204,13 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
   - [x] Troubleshooting.
 - [ ] Add screenshots or short demo media for GitHub and app stores.
 - [x] Add a web favicon.
-- [ ] Add architecture documentation.
-  - Filesystem source of truth.
-  - SQLite metadata.
-  - Upload flow.
-  - Preview generation.
-  - Watcher/reconciliation.
-  - Mobile background uploads.
+- [x] Add architecture documentation.
+  - [x] Filesystem source of truth.
+  - [x] SQLite metadata.
+  - [x] Upload flow.
+  - [x] Preview generation.
+  - [x] Watcher/reconciliation.
+  - [x] Mobile background uploads.
 
 ## Web UI Responsiveness
 
