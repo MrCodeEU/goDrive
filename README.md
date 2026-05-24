@@ -2,6 +2,12 @@
 
 Self-hosted file manager for families. Filesystem is the source of truth. SQLite stores metadata only — sessions, index, trash records, upload state. Everything is rebuildable from disk.
 
+## Project Status
+
+goDrive is still pre-release software. The core web/backend/demo flows are usable, but store publishing, wider device testing, long-running deployment testing, and some open source project polish are still in progress. Track the remaining work in `todo.md`.
+
+Do not expose a personal deployment directly to the public internet without TLS, backups, rate limits, and a reverse proxy configuration you understand. The intended production model is a small private self-hosted instance, not a public multi-tenant SaaS.
+
 ## Features
 
 **Web UI (Svelte/SVAR)**
@@ -67,6 +73,8 @@ Release images are published to `ghcr.io/<owner>/godrive` on `v*` tags.
 
 For a disposable public demo deployment, use the hardened demo compose profile in `deploy/docker-compose.demo.yml`; see `docs/demo-instance.md`.
 
+For private production deployments, run goDrive behind a reverse proxy that terminates HTTPS, sets sane request/body limits, and forwards the expected headers. Set `GODRIVE_COOKIE_SECURE=true` and enable HSTS when the site is HTTPS-only. Keep `/data`, durable appdata, and trash on storage that is backed up.
+
 ## CI and Local Workflow Checks
 
 Hosted GitHub Actions are kept focused on release orchestration, scheduled security checks, Docker publishing, and iOS/macOS builds. Routine Linux workflow checks should be run locally first with `make` and `act`; see [Local CI and GitHub Actions](docs/ci-local.md).
@@ -85,6 +93,8 @@ make mobile-build-android  # debug APK
 The emulator reaches the backend at `http://10.0.2.2:8121` (Android emulator maps `10.0.2.2` → host `127.0.0.1`).
 
 Android package metadata, permissions, versioning, and Play listing draft are tracked in [Android Release Metadata](docs/android-release-metadata.md).
+
+The app-store release and testing flow is tracked in [Mobile Store Release](docs/mobile-store-release.md).
 
 ## Mobile (iOS — physical device, from Linux)
 
@@ -287,3 +297,11 @@ Before putting real data behind the server, run the release gates:
 - [Feature support matrix](docs/feature-support.md)
 - [Security audit plan](docs/security-audit.md)
 - [Manual test plan](docs/manual-test-plan.md)
+
+## Contributing
+
+Contributions are welcome once the repository is public. Start with [CONTRIBUTING.md](CONTRIBUTING.md), use the issue and pull request templates, and report vulnerabilities privately through [SECURITY.md](SECURITY.md).
+
+## License
+
+The project license is not selected yet. Do not redistribute or package goDrive as open source until a license file has been added.

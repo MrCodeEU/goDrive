@@ -194,14 +194,14 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
   - No local IDE files.
   - No generated temporary files.
   - No secrets or local `.env`.
-- [ ] Review README for public users.
-  - Quick start.
-  - Docker deployment.
-  - Reverse proxy/TLS guidance.
-  - Backup/restore guidance.
-  - Security caveats.
-  - Mobile setup.
-  - Troubleshooting.
+- [x] Review README for public users.
+  - [x] Quick start.
+  - [x] Docker deployment.
+  - [x] Reverse proxy/TLS guidance.
+  - [x] Backup/restore guidance.
+  - [x] Security caveats.
+  - [x] Mobile setup.
+  - [x] Troubleshooting.
 - [ ] Add screenshots or short demo media for GitHub and app stores.
 - [x] Add a web favicon.
 - [ ] Add architecture documentation.
