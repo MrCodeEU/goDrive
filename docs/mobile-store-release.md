@@ -11,7 +11,8 @@ This runbook describes the path from the current dry-run GitHub Actions release 
   - GitHub Release sideload artifact: `.apk`
 - Android release builds are dry-runnable without production credentials by generating a temporary CI keystore.
 - Google Play upload is opt-in with `workflow_dispatch` input `upload_google_play=true`.
-- iOS release validation currently builds and packages an unsigned dry-run IPA.
+- iOS release validation is manual-only through `workflow_dispatch` with `build_ios_dry_run=true`.
+- The unsigned iOS dry-run IPA is intentionally not built on every version tag to conserve macOS Actions minutes.
 - TestFlight upload is deliberately blocked until signed IPA export is implemented with real Apple distribution certificates and provisioning profiles.
 
 ## Android: First Internal Testing Build
@@ -72,6 +73,7 @@ Run GitHub Actions manually:
 - Workflow: `Release`
 - `upload_google_play=false`
 - `upload_testflight=false`
+- `build_ios_dry_run=false`
 
 Expected result:
 

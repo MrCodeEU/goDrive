@@ -151,6 +151,12 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
   - Go fmt/vet/lint/tests.
   - Web type-check/tests/build.
   - Mobile analyze/tests.
+- [x] Reduce hosted GitHub Actions minute usage.
+  - Local-first workflow validation with `act`.
+  - Scheduled/manual security scans.
+  - Manual CI Docker build gate.
+  - Tag/manual production image publishing.
+  - Manual-only iOS dry-run builds.
 - [x] Fix or update mobile Makefile targets if local Flutter no longer supports `--directory`.
   - Prefer `cd mobile && flutter test`.
   - Prefer `cd mobile && flutter analyze`.

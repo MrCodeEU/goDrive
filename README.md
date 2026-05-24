@@ -67,6 +67,10 @@ Release images are published to `ghcr.io/<owner>/godrive` on `v*` tags.
 
 For a disposable public demo deployment, use the hardened demo compose profile in `deploy/docker-compose.demo.yml`; see `docs/demo-instance.md`.
 
+## CI and Local Workflow Checks
+
+Hosted GitHub Actions are kept focused on release orchestration, scheduled security checks, Docker publishing, and iOS/macOS builds. Routine Linux workflow checks should be run locally first with `make` and `act`; see [Local CI and GitHub Actions](docs/ci-local.md).
+
 ## Mobile (Android)
 
 ```sh
@@ -155,7 +159,7 @@ godrive admin reset-password --username admin --password 'new-password'
 
 ## Security Checks
 
-The GitHub `Security` workflow runs Go vulnerability checks, npm audit, OSV lockfile scans for npm/Pub dependencies, and an Anchore/Grype scan of the Docker image. Dependabot is configured for GitHub Actions, Go modules, npm, Pub, and Docker base images.
+The GitHub `Security` workflow runs weekly and on manual dispatch. It covers Go vulnerability checks, npm audit, OSV lockfile scans for npm/Pub dependencies, and an optional Anchore/Grype scan of the Docker image. Dependabot is configured for GitHub Actions, Go modules, npm, Pub, and Docker base images.
 
 Please report suspected vulnerabilities privately. See [SECURITY.md](SECURITY.md).
 

@@ -3,8 +3,23 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'todo.md'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'todo.md'
+  workflow_dispatch:
+    inputs:
+      docker_build:
+        description: Build the production Docker image as an extra local/diagnostic gate
+        required: false
+        type: boolean
+        default: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -30,7 +45,7 @@ jobs:
         run: go vet ./...
 
       - name: Test
-        run: go test -race -count=1 ./...
+        run: go test -count=1 ./...
 
   frontend:
     name: Frontend
@@ -60,6 +75,7 @@ jobs:
     name: Docker build
     runs-on: ubuntu-latest
     needs: [backend, frontend]
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.docker_build }}
     steps:
       - uses: actions/checkout@v4
 

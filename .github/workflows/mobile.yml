@@ -9,6 +9,13 @@ on:
   pull_request:
     paths:
       - 'mobile/**'
+  workflow_dispatch:
+    inputs:
+      build_debug_apk:
+        description: Build and upload a debug APK artifact
+        required: false
+        type: boolean
+        default: true
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -50,10 +57,12 @@ jobs:
         run: flutter test
 
       - name: Build APK (debug)
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_debug_apk) }}
         working-directory: mobile
         run: flutter build apk --debug
 
       - name: Upload APK artifact
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.build_debug_apk) }}
         uses: actions/upload-artifact@v4
         with:
           name: godrive-debug.apk

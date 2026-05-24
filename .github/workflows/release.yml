@@ -16,6 +16,11 @@ on:
         required: false
         type: boolean
         default: false
+      build_ios_dry_run:
+        description: Build unsigned iOS dry-run IPA
+        required: false
+        type: boolean
+        default: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -131,6 +136,7 @@ jobs:
   ios:
     name: iOS Release Dry Run
     runs-on: macos-latest
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.build_ios_dry_run || inputs.upload_testflight) }}
     env:
       HAS_TESTFLIGHT_UPLOAD: ${{ secrets.APPSTORE_API_PRIVATE_KEY != '' && secrets.APPSTORE_API_KEY_ID != '' && secrets.APPSTORE_ISSUER_ID != '' }}
     steps:

@@ -69,7 +69,7 @@ The `Docker Publish` GitHub Actions workflow publishes the demo image as:
 ghcr.io/mrcodeeu/godrive-demo:latest
 ```
 
-After the demo image is pushed from a successful `main` CI run, the workflow sends a `repository_dispatch` event to `MrCodeEU/homelab-automation`:
+After a relevant `main` branch change builds and pushes the demo image, the workflow sends a `repository_dispatch` event to `MrCodeEU/homelab-automation`:
 
 ```json
 {
@@ -86,7 +86,7 @@ After the demo image is pushed from a successful `main` CI run, the workflow sen
 
 This requires a `DISPATCH_TOKEN` repository secret in this repo with permission to dispatch workflows in `MrCodeEU/homelab-automation`.
 
-The production Docker image is built after the demo image succeeds. The demo image intentionally includes the full preview stack, so this keeps the public demo and production preview paths aligned.
+Main-branch demo publishes build only the homelab target platform to conserve hosted Actions minutes. Version tags and manual dispatch can build multi-arch images. The production Docker image is tag/manual only. The demo image intentionally includes the full preview stack, so this keeps the public demo and production preview paths aligned.
 
 ## Container Hardening
 

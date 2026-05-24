@@ -1,13 +1,15 @@
 name: Security
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   schedule:
     - cron: '23 4 * * 1'
   workflow_dispatch:
+    inputs:
+      docker_image_scan:
+        description: Build and scan the Docker image
+        required: false
+        type: boolean
+        default: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -69,6 +71,7 @@ jobs:
   docker-image:
     name: Docker image scan
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.docker_image_scan) }}
     steps:
       - uses: actions/checkout@v4
 

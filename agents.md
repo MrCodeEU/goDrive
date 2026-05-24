@@ -13,7 +13,31 @@ The pre-commit hook runs on staged files only — fast for typical changes:
 - `web/` staged: `svelte-check`
 - `mobile/` staged: `flutter analyze`
 
-CI re-runs the same checks as a second gate (format, vet, test, type-check, build).
+CI re-runs the main backend/frontend checks as a second gate for code changes. Documentation-only changes are ignored by hosted CI to conserve GitHub Actions minutes.
+
+## CI and workflow validation
+
+Use local checks first. Do not trigger GitHub Actions just to validate routine Linux jobs when `act` can run the same workflow locally.
+
+```bash
+make test
+make web-check
+make web-test
+make web-build
+act -l
+act -W .github/workflows/ci.yml -j backend --artifact-server-addr 127.0.0.1 --cache-server-addr 127.0.0.1
+act -W .github/workflows/ci.yml -j frontend --artifact-server-addr 127.0.0.1 --cache-server-addr 127.0.0.1
+```
+
+For heavier local workflow checks:
+
+```bash
+act -W .github/workflows/ci.yml -j docker --input docker_build=true --artifact-server-addr 127.0.0.1 --cache-server-addr 127.0.0.1
+act -W .github/workflows/security.yml -j web-audit --artifact-server-addr 127.0.0.1 --cache-server-addr 127.0.0.1
+act -W .github/workflows/security.yml -j docker-image --input docker_image_scan=true --artifact-server-addr 127.0.0.1 --cache-server-addr 127.0.0.1
+```
+
+Use `-n` for a dry-run when checking workflow shape without executing commands. Use GitHub-hosted runners for release publishing and iOS/macOS builds. iOS cannot be realistically validated through `act` on Linux. Before pushing workflow changes, run `act -l` and the relevant Linux jobs locally when practical.
 
 ## Commands
 
