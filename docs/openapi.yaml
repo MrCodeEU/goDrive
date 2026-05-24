@@ -952,7 +952,7 @@ components:
           type: string
         preview_kind:
           type: string
-          enum: [image, raw, video, pdf, text, markdown, office, model]
+          enum: [image, raw, video, pdf, text, markdown, office, 3d]
         snippet:
           type: string
     ListResponse:
@@ -1140,9 +1140,11 @@ components:
           type: string
     AdminStats:
       type: object
+      required: [users, index, trash, preview_cache, preview, watcher, reconciliation]
       properties:
         users:
           type: object
+          required: [total, disabled]
           properties:
             total:
               type: integer
@@ -1150,6 +1152,7 @@ components:
               type: integer
         index:
           type: object
+          required: [indexed_files, indexed_directories, indexed_bytes, preview_candidates]
           properties:
             indexed_files:
               type: integer
@@ -1161,6 +1164,7 @@ components:
               type: integer
         trash:
           type: object
+          required: [items, bytes]
           properties:
             items:
               type: integer
@@ -1168,6 +1172,7 @@ components:
               type: integer
         preview_cache:
           type: object
+          required: [files, bytes]
           properties:
             files:
               type: integer
@@ -1175,6 +1180,7 @@ components:
               type: integer
         preview:
           type: object
+          required: [workers, sizes, tools]
           properties:
             workers:
               type: integer
@@ -1188,10 +1194,43 @@ components:
                 $ref: "#/components/schemas/PreviewToolStatus"
         watcher:
           type: object
-          additionalProperties: true
+          required: [enabled, roots, watched_paths, events, pending, errors, needs_rescan]
+          properties:
+            enabled:
+              type: boolean
+            roots:
+              type: integer
+            watched_paths:
+              type: integer
+            events:
+              type: integer
+            pending:
+              type: integer
+            errors:
+              type: integer
+            last_error:
+              type: string
+            last_error_at:
+              type: string
+              format: date-time
+            last_event_at:
+              type: string
+              format: date-time
+            last_index_at:
+              type: string
+              format: date-time
+            needs_rescan:
+              type: boolean
         reconciliation:
           type: object
-          additionalProperties: true
+          required: [enabled, interval_seconds, interval]
+          properties:
+            enabled:
+              type: boolean
+            interval_seconds:
+              type: integer
+            interval:
+              type: string
         current_job:
           anyOf:
             - $ref: "#/components/schemas/AdminJob"

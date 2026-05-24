@@ -1,110 +1,32 @@
-export type User = {
-  id: number;
-  username: string;
-  is_admin: boolean;
-  disabled: boolean;
-  home_root: string;
-};
+import type {
+  APIKey,
+  AdminJob,
+  AdminStats,
+  ExifData,
+  FileEntry,
+  ListResponse,
+  LoginResponse,
+  PublicConfig,
+  SearchResponse,
+  TextPreview,
+  TrashItem,
+  User
+} from "./api-types";
 
-export type FileEntry = {
-  name: string;
-  path: string;
-  type: "file" | "dir";
-  size: number;
-  modified_at: string;
-  mime_type?: string;
-  preview_kind?: string;
-  snippet?: string;
-};
-
-export type LoginResponse = {
-  token: string;
-  user: User;
-};
-
-export type PublicConfig = {
-  demo_mode: boolean;
-  demo_user?: string;
-  demo_password?: string;
-};
-
-export type ListResponse = {
-  path: string;
-  entries: FileEntry[];
-  total: number;
-  offset: number;
-  limit: number;
-  has_more: boolean;
-  next_cursor?: string;
-};
-
-export type SearchResponse = {
-  query: string;
-  entries: FileEntry[];
-};
-
-export type TrashItem = {
-  id: string;
-  user_id: number;
-  original_path: string;
-  original_name: string;
-  is_dir: boolean;
-  size: number;
-  deleted_at: string;
-};
-
-export type AdminJob = {
-  id: string;
-  type: string;
-  status: string;
-  started_at: string;
-  finished_at?: string;
-  total: number;
-  total_known: boolean;
-  done: number;
-  failed: number;
-  deleted?: number;
-  user?: string;
-  scope?: string;
-  cancelable?: boolean;
-  message: string;
-};
-
-export type AdminStats = {
-  users: {
-    total: number;
-    disabled: number;
-  };
-  index: {
-    indexed_files: number;
-    indexed_directories: number;
-    indexed_bytes: number;
-    preview_candidates: number;
-  };
-  trash: {
-    items: number;
-    bytes: number;
-  };
-  preview_cache: {
-    files: number;
-    bytes: number;
-  };
-  preview: {
-    workers: number;
-    sizes: number[];
-  };
-  watcher: {
-    enabled: boolean;
-    roots: number;
-    watched_paths: number;
-  };
-  reconciliation: {
-    enabled: boolean;
-    interval_seconds: number;
-    interval: string;
-  };
-  current_job?: AdminJob | null;
-};
+export type {
+  APIKey,
+  AdminJob,
+  AdminStats,
+  ExifData,
+  FileEntry,
+  ListResponse,
+  LoginResponse,
+  PublicConfig,
+  SearchResponse,
+  TextPreview,
+  TrashItem,
+  User
+} from "./api-types";
 
 export type UploadProgress = {
   loaded: number;
@@ -193,27 +115,9 @@ export async function me() {
   return response.user;
 }
 
-export type TextPreview = {
-  path: string;
-  name: string;
-  size: number;
-  truncated: boolean;
-  max_bytes: number;
-  content: string;
-  mime_type: string;
-  modified_at: string;
-};
-
 export async function fetchTextPreview(path: string) {
   return api<TextPreview>(`/api/files/text?path=${encodeURIComponent(path)}`);
 }
-
-export type ExifData = {
-  fields: Record<string, unknown>;
-  gps_lat?: number;
-  gps_lon?: number;
-  has_gps: boolean;
-};
 
 export async function fetchExif(path: string) {
   return api<ExifData>(`/api/files/exif?path=${encodeURIComponent(path)}`);
@@ -389,16 +293,6 @@ export async function clearPreviewCache() {
   return api<{ status: string }>("/api/admin/preview-cache", {
     method: "DELETE"
   });
-}
-
-export interface APIKey {
-  id: string;
-  user_id: number;
-  username: string;
-  name: string;
-  created_at: string;
-  last_used_at?: string;
-  revoked_at?: string;
 }
 
 export async function listAPIKeys() {

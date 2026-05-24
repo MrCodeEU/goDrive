@@ -88,6 +88,7 @@ class FileEntry {
 
 class TrashItem {
   final String id;
+  final int userId;
   final String originalPath;
   final String originalName;
   final bool isDir;
@@ -96,6 +97,7 @@ class TrashItem {
 
   const TrashItem({
     required this.id,
+    required this.userId,
     required this.originalPath,
     required this.originalName,
     required this.isDir,
@@ -105,6 +107,7 @@ class TrashItem {
 
   factory TrashItem.fromJson(Map<String, dynamic> j) => TrashItem(
         id: j['id'] as String,
+        userId: j['user_id'] as int,
         originalPath: j['original_path'] as String,
         originalName: j['original_name'] as String,
         isDir: j['is_dir'] as bool,
@@ -114,23 +117,35 @@ class TrashItem {
 }
 
 class TextPreview {
+  final String path;
+  final String name;
   final String content;
   final bool truncated;
   final int size;
   final int maxBytes;
+  final String mimeType;
+  final DateTime modifiedAt;
 
   const TextPreview({
+    required this.path,
+    required this.name,
     required this.content,
     required this.truncated,
     required this.size,
     required this.maxBytes,
+    required this.mimeType,
+    required this.modifiedAt,
   });
 
   factory TextPreview.fromJson(Map<String, dynamic> j) => TextPreview(
+        path: j['path'] as String,
+        name: j['name'] as String,
         content: j['content'] as String,
         truncated: j['truncated'] as bool,
         size: j['size'] as int,
         maxBytes: j['max_bytes'] as int,
+        mimeType: j['mime_type'] as String,
+        modifiedAt: DateTime.parse(j['modified_at'] as String),
       );
 }
 

@@ -28,7 +28,7 @@ IOS_BRANCH     := ios-dev
 IOS_ARTIFACT   := godrive-ios
 IOS_IPA        := /tmp/godrive-ios/godrive.ipa
 
-.PHONY: fmt fmt-check vet test test-cover test-race tidy golangci lint check api-contract run \
+.PHONY: fmt fmt-check vet test test-cover test-race tidy golangci lint check api-contract api-types run \
         security security-go security-web security-osv security-docker \
         web-install web-dev web-check web-build web-test \
         mobile-install mobile-test mobile-build-android mobile-build-android-release \
@@ -75,6 +75,11 @@ check: lint test web-test web-build api-contract
 
 api-contract:
 	ruby scripts/check-openapi-routes.rb
+	ruby scripts/generate-openapi-types.rb --check
+	ruby scripts/check-dart-openapi-models.rb
+
+api-types:
+	ruby scripts/generate-openapi-types.rb
 
 security: security-go security-web security-osv
 

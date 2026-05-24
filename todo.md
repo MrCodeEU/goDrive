@@ -124,8 +124,9 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
 - [ ] Centralize the API contract.
   - [x] Add OpenAPI or another schema source of truth.
   - [x] Add route coverage validation so implemented API routes stay documented.
-  - Generate or validate web TypeScript types and Flutter models against it.
+  - [x] Generate or validate web TypeScript types and Flutter models against it.
   - Reduce drift between backend handlers, web API client, Flutter API client, Kotlin service, and Swift uploader.
+  - [ ] Generate or validate endpoint-level request/response wrappers.
 - [ ] Version and isolate the mobile upload queue schema.
   - Avoid manual JSON shape duplication across Dart, Kotlin, and Swift.
   - Add migration handling for queued items from older app versions.

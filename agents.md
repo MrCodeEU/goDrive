@@ -45,6 +45,12 @@ When backend routes or API response shapes change, update `docs/openapi.yaml` in
 make api-contract
 ```
 
+If OpenAPI schema components change, regenerate web types with:
+
+```bash
+make api-types
+```
+
 ## Commands
 
 ### Backend
