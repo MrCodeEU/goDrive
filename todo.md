@@ -75,13 +75,14 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
   - [x] Add secure CI secret handling for keystore material.
   - [x] Keep release workflow dry-runnable without production credentials via a temporary CI keystore.
 - [ ] Finalize Android package metadata.
-  - Confirm application ID.
-  - App label.
-  - Icons and adaptive icon.
-  - Splash/launch screen.
-  - Versioning policy.
-  - Permissions review.
-  - Play Store listing assets.
+  - [x] Confirm application ID: `eu.mljr.godrive`.
+  - [x] App label: `goDrive`.
+  - [x] Icons and adaptive icon.
+  - [x] Splash/launch screen.
+  - [x] Versioning policy.
+  - [x] Permissions review.
+  - [ ] Play Store listing screenshots/graphics.
+  - [x] Play Store listing copy draft.
   - Release/store onboarding runbook: `docs/mobile-store-release.md`.
 - [ ] Harden Android background uploads on physical devices.
   - Large files.
@@ -127,6 +128,8 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
 - [ ] Version and isolate the mobile upload queue schema.
   - Avoid manual JSON shape duplication across Dart, Kotlin, and Swift.
   - Add migration handling for queued items from older app versions.
+- [ ] Migrate Android project/plugins to Flutter built-in Kotlin DSL when dependencies support it.
+  - Current Flutter builds auto-pin `android.builtInKotlin=false` and warn that the legacy Kotlin Gradle plugin path will fail in a future Flutter version.
 - [ ] Code-split heavy web features.
   - Lazy-load 3D viewer and `3MFLoader`.
   - Lazy-load CodeMirror/editor bundles.

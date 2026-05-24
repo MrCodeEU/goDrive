@@ -6,6 +6,7 @@ This runbook describes the path from the current dry-run GitHub Actions release 
 
 - Existing development workflows are unchanged.
 - `.github/workflows/release.yml` runs on `v*` tags or manual dispatch.
+- Android package metadata is tracked in `docs/android-release-metadata.md`.
 - Android release builds produce both:
   - Play Store artifact: `.aab`
   - GitHub Release sideload artifact: `.apk`
@@ -25,7 +26,7 @@ This runbook describes the path from the current dry-run GitHub Actions release 
 4. Choose app or game, free or paid, and declarations.
 5. Complete the required dashboard setup far enough that an internal testing release can be created.
 
-The package name is permanent after upload. Do not upload a test bundle under `eu.mljr.godrive` unless that is the final package name.
+The package name is permanent after upload. The repo is configured for `eu.mljr.godrive`; do not upload a test bundle under that package name unless it remains the final package name.
 
 ### 2. Create the Android upload keystore
 
@@ -79,6 +80,7 @@ Expected result:
 
 - `godrive-android-release` workflow artifact exists.
 - `.aab` and `.apk` are produced.
+- Tag builds use the tag without the leading `v` as `versionName`; all release builds use the GitHub run number as Android `versionCode`.
 - No Play Store upload happens.
 
 ### 5. Upload first AAB manually

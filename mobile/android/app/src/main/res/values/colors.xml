@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="godrive_brand">#2AB8F2</color>
+    <color name="godrive_brand_dark">#0B2A3A</color>
+    <color name="godrive_icon_background">#EAF8FE</color>
+    <color name="godrive_splash_background">#F7FBFE</color>
+</resources>

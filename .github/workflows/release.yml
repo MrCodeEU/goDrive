@@ -59,6 +59,18 @@ jobs:
         working-directory: mobile
         run: flutter pub get
 
+      - name: Resolve Android version
+        id: android-version
+        working-directory: mobile
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            name="${GITHUB_REF_NAME#v}"
+          else
+            name="$(sed -n 's/^version: \([^+]*\).*/\1/p' pubspec.yaml)"
+          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "code=$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+
       - name: Decode Android release keystore
         if: env.HAS_ANDROID_SIGNING == 'true'
         run: |
@@ -91,11 +103,11 @@ jobs:
 
       - name: Build Android App Bundle
         working-directory: mobile
-        run: flutter build appbundle --release --build-number "$GITHUB_RUN_NUMBER"
+        run: flutter build appbundle --release --build-name "${{ steps.android-version.outputs.name }}" --build-number "${{ steps.android-version.outputs.code }}"
 
       - name: Build Android APK
         working-directory: mobile
-        run: flutter build apk --release --build-number "$GITHUB_RUN_NUMBER"
+        run: flutter build apk --release --build-name "${{ steps.android-version.outputs.name }}" --build-number "${{ steps.android-version.outputs.code }}"
 
       - name: Collect Android artifacts
         run: |

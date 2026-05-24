@@ -82,6 +82,8 @@ make mobile-build-android  # debug APK
 
 The emulator reaches the backend at `http://10.0.2.2:8121` (Android emulator maps `10.0.2.2` → host `127.0.0.1`).
 
+Android package metadata, permissions, versioning, and Play listing draft are tracked in [Android Release Metadata](docs/android-release-metadata.md).
+
 ## Mobile (iOS — physical device, from Linux)
 
 iOS builds run on GitHub Actions (`macos-latest`). [xtool](https://xtool.sh) (AppImage) signs and installs on Linux without Xcode.
