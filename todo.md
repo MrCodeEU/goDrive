@@ -184,7 +184,7 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
 
 ## Open Source Readiness
 
-- [ ] Add a license.
+- [x] Add a license.
 - [x] Add `CONTRIBUTING.md`.
 - [x] Add issue templates.
 - [x] Add pull request template.

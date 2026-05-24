@@ -306,4 +306,4 @@ Contributions are welcome once the repository is public. Start with [CONTRIBUTIN
 
 ## License
 
-The project license is not selected yet. Do not redistribute or package goDrive as open source until a license file has been added.
+goDrive is released under the [MIT License](LICENSE).
