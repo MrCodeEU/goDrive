@@ -149,7 +149,7 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
 - [ ] Review admin home-root management.
   - Add guardrails for dangerous roots.
   - Consider requiring roots under configured data root unless explicitly allowed.
-- [ ] Add structured release notes and changelog process.
+- [x] Add structured release notes and changelog process.
 
 ## Testing And Quality Gates
 

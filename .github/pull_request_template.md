@@ -29,6 +29,7 @@
 
 - [ ] OpenAPI updated, if API behavior changed
 - [ ] Generated API types updated, if schema changed
+- [ ] CHANGELOG updated, if user-facing behavior changed
 - [ ] README/docs/todo updated, if user-facing behavior changed
 - [ ] Feature matrix updated, if platform support changed
 

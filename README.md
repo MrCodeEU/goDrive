@@ -83,6 +83,8 @@ The REST/SSE/TUS API contract lives in [OpenAPI](docs/openapi.yaml). Web schema 
 
 For a high-level system overview, see [Architecture](docs/architecture.md).
 
+For versioning, changelog, and tag-release steps, see [Release Process](docs/release-process.md).
+
 ## Mobile (Android)
 
 ```sh
