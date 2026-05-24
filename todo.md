@@ -185,10 +185,10 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
 ## Open Source Readiness
 
 - [ ] Add a license.
-- [ ] Add `CONTRIBUTING.md`.
-- [ ] Add issue templates.
-- [ ] Add pull request template.
-- [ ] Add `CODE_OF_CONDUCT.md` if desired.
+- [x] Add `CONTRIBUTING.md`.
+- [x] Add issue templates.
+- [x] Add pull request template.
+- [x] Add `CODE_OF_CONDUCT.md` if desired.
 - [ ] Clean repository artifacts before publishing.
   - No build outputs.
   - No local IDE files.

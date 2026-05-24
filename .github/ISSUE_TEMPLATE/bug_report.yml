@@ -1,0 +1,58 @@
+name: Bug report
+description: Report something that is broken or behaving unexpectedly.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Do not include secrets, real passwords, private file paths, or vulnerability details. Use SECURITY.md for security reports.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened, and what did you expect instead?
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      multiple: true
+      options:
+        - Web UI
+        - Backend/API
+        - Android
+        - iOS
+        - WebDAV
+        - Docker/deployment
+        - CI/release
+        - Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start goDrive with ...
+        2. Open ...
+        3. Click ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Paste relevant logs or screenshots. Remove secrets and private paths first.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: v0.0.0 or commit SHA
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, browser, device, Docker image, reverse proxy, filesystem/NAS setup, or mobile OS version.
