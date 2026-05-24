@@ -132,10 +132,11 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
   - Add migration handling for queued items from older app versions.
 - [ ] Migrate Android project/plugins to Flutter built-in Kotlin DSL when dependencies support it.
   - Current Flutter builds auto-pin `android.builtInKotlin=false` and warn that the legacy Kotlin Gradle plugin path will fail in a future Flutter version.
-- [ ] Code-split heavy web features.
-  - Lazy-load 3D viewer and `3MFLoader`.
-  - Lazy-load CodeMirror/editor bundles.
-  - Re-check Vite chunk warnings after splitting.
+- [x] Code-split heavy web features.
+  - [x] Lazy-load 3D viewer and `3MFLoader`.
+  - [x] Lazy-load CodeMirror/editor bundles.
+  - [x] Re-check Vite chunk warnings after splitting.
+  - Result: the initial web app chunk is much smaller; Vite still warns for the intentionally lazy CodeMirror and 3MF chunks.
 - [ ] Decide the long-term WebDAV position.
   - Fully supported and indexed.
   - Supported but explicitly direct-filesystem only.
@@ -202,6 +203,7 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
   - Mobile setup.
   - Troubleshooting.
 - [ ] Add screenshots or short demo media for GitHub and app stores.
+- [x] Add a web favicon.
 - [ ] Add architecture documentation.
   - Filesystem source of truth.
   - SQLite metadata.

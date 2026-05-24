@@ -1,8 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import Icon from "./lib/Icon.svelte";
-  import CodeEditor from "./lib/CodeEditor.svelte";
-  import ThreeDGridThumb from "./lib/ThreeDGridThumb.svelte";
   import {
     adminStats,
     authHeaders,
@@ -61,6 +59,18 @@
   const thumbnailKinds = new Set(["image", "raw", "video", "pdf", "office"]);
   const uploadConcurrency = 3;
   const QUEUE_STORAGE_KEY = "godrive_upload_queue";
+
+  let codeEditorPromise: Promise<typeof import("./lib/CodeEditor.svelte")> | null = null;
+  function loadCodeEditor() {
+    codeEditorPromise ??= import("./lib/CodeEditor.svelte");
+    return codeEditorPromise;
+  }
+
+  let threeDGridThumbPromise: Promise<typeof import("./lib/ThreeDGridThumb.svelte")> | null = null;
+  function loadThreeDGridThumb() {
+    threeDGridThumbPromise ??= import("./lib/ThreeDGridThumb.svelte");
+    return threeDGridThumbPromise;
+  }
 
   let threeDViewerPromise: Promise<typeof import("./lib/ThreeDViewer.svelte")> | null = null;
   function loadThreeDViewer() {
@@ -159,7 +169,7 @@
     try { localStorage.setItem('godrive_viewer_sidebar', String(viewerSidebarOpen)); } catch {}
   }
   let editorSaving = false;
-  let editorRef: CodeEditor | null = null;
+  let editorRef: { getValue(): string } | null = null;
 
   let trashOpen = false;
   let trashItems: TrashItem[] = [];
@@ -1762,7 +1772,13 @@
                   {:else if (entry.preview_kind === "text" || entry.preview_kind === "markdown") && entry.snippet}
                     <span class="text-thumb"><span class="text-thumb-content">{entry.snippet}</span></span>
                   {:else if entry.preview_kind === "3d"}
-                    <ThreeDGridThumb src={rawFileURL(entry.path)} name={entry.name} path={entry.path} />
+                    {#await loadThreeDGridThumb()}
+                      <span class="file-icon"><Icon name="box" />3D</span>
+                    {:then module}
+                      <svelte:component this={module.default} src={rawFileURL(entry.path)} name={entry.name} path={entry.path} />
+                    {:catch}
+                      <span class="file-icon"><Icon name="box" />3D</span>
+                    {/await}
                   {:else}
                     <span class="file-icon"><Icon name={fileIconName(entry)} />{(entry.preview_kind || entry.name.split(".").pop() || "file").slice(0, 4).toUpperCase()}</span>
                   {/if}
@@ -1929,7 +1945,13 @@
                     <button class="cancel-btn" on:click={() => { editorMode = false; editorDirty = false; }}>Preview</button>
                     <button class="save-btn" disabled={!editorDirty || editorSaving} on:click={saveEditorContent}>{editorSaving ? "Saving…" : "Save"}</button>
                   </div>
-                  <CodeEditor bind:this={editorRef} content={viewerText?.content ?? ''} filename={viewerFile.name} onChange={(v) => { editorContent = v; editorDirty = true; }} />
+                  {#await loadCodeEditor()}
+                    <div class="viewer-loading">Loading editor…</div>
+                  {:then module}
+                    <svelte:component this={module.default} bind:this={editorRef} content={viewerText?.content ?? ''} filename={viewerFile.name} onChange={(v: string) => { editorContent = v; editorDirty = true; }} />
+                  {:catch}
+                    <div class="viewer-loading">Editor unavailable.</div>
+                  {/await}
                 </div>
               {:else}
                 <div class="text-preview">
