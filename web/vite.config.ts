@@ -1,6 +1,8 @@
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import { defineConfig } from "vite";
 
+const backendURL = process.env.GODRIVE_BACKEND_URL || "http://127.0.0.1:8121";
+
 export default defineConfig({
   plugins: [svelte()],
   build: {
@@ -10,8 +12,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": "http://127.0.0.1:8121",
-      "/health": "http://127.0.0.1:8121"
+      "/api": backendURL,
+      "/health": backendURL
     }
   }
 });

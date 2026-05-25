@@ -30,7 +30,7 @@ IOS_IPA        := /tmp/godrive-ios/godrive.ipa
 
 .PHONY: fmt fmt-check vet test test-cover test-race tidy golangci lint check api-contract api-types run \
         security security-go security-web security-osv security-docker \
-        web-install web-dev web-check web-build web-test \
+        web-install web-dev web-check web-build web-test web-e2e \
         mobile-install mobile-test mobile-build-android mobile-build-android-release \
         emulator-start emulator-wait mobile-run mobile-dev \
         xtool-setup xtool-auth ios-push ios-deploy ios-refresh ios-devices \
@@ -121,6 +121,9 @@ web-build:
 
 web-test:
 	npm run test --prefix web
+
+web-e2e:
+	npm run test:e2e --prefix web
 
 mobile-install:
 	cd mobile && $(FLUTTER) pub get

@@ -11,6 +11,7 @@ make test
 make web-check
 make web-test
 make web-build
+make web-e2e
 ```
 
 For mobile changes:

@@ -24,6 +24,7 @@ make test
 make web-check
 make web-test
 make web-build
+make web-e2e
 act -l
 act -W .github/workflows/ci.yml -j backend --artifact-server-addr 127.0.0.1 --cache-server-addr 127.0.0.1
 act -W .github/workflows/ci.yml -j frontend --artifact-server-addr 127.0.0.1 --cache-server-addr 127.0.0.1

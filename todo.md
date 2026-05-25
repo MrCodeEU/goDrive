@@ -166,13 +166,13 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
 - [x] Fix or update mobile Makefile targets if local Flutter no longer supports `--directory`.
   - Prefer `cd mobile && flutter test`.
   - Prefer `cd mobile && flutter analyze`.
-- [ ] Add end-to-end browser tests for the main web workflows.
-  - Login/logout.
-  - Upload.
-  - Browse/search.
-  - Preview.
-  - Trash restore/delete.
-  - Admin jobs.
+- [x] Add end-to-end browser tests for the main web workflows.
+  - [x] Login/logout.
+  - [x] Upload.
+  - [x] Browse/search.
+  - [x] Preview.
+  - [x] Trash restore/delete.
+  - [x] Admin smoke coverage.
 - [ ] Add mobile integration smoke tests where practical.
   - Login.
   - Browse.
@@ -221,6 +221,8 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
 - [ ] Rework action toolbars into touch-friendly grouped controls.
 - [ ] Make preview, info, trash, admin, upload queue, and modal dialogs fit small screens.
 - [ ] Add viewport checks for phone, tablet, and desktop to the release gate.
+  - [x] Add a Playwright mobile navigation/admin smoke test.
+  - [ ] Add tablet coverage.
 
 ## Demo Instance
 

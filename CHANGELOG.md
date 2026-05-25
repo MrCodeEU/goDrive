@@ -16,6 +16,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Android release build workflow with signed/dry-run AAB and APK artifacts.
 - Local-first CI workflow guidance using `act`.
 - Web favicon.
+- Playwright end-to-end browser test suite for the web app.
 
 ### Changed
 

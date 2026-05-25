@@ -293,6 +293,7 @@ make test-race      # with race detector
 GOCACHE=/tmp/godrive-gocache go test ./internal/store -bench BenchmarkFileIndex400k -run '^$'
 make web-test       # Vitest frontend tests
 make web-check      # svelte-check type checking
+make web-e2e        # Playwright browser tests with isolated backend/frontend servers
 make mobile-test    # Flutter tests
 ```
 

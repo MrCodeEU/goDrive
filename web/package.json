@@ -7,7 +7,8 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "test": "vitest run"
+    "test:e2e": "playwright test",
+    "test": "vitest run src"
   },
   "dependencies": {
     "@codemirror/lang-cpp": "^6.0.3",
@@ -25,6 +26,7 @@
     "three": "^0.184.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
     "@types/three": "^0.184.1",
     "svelte-check": "^4.0.0",
