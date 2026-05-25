@@ -198,10 +198,6 @@ func thumbnailCachePathInode(cacheRoot string, userID int64, logical string, inf
 	return filepath.Join(cacheRoot, "thumbs", hex.EncodeToString(sum[:2]), hex.EncodeToString(sum[:])+".jpg")
 }
 
-func generateThumbnail(ctx context.Context, source, kind string, size int, target string) error {
-	return generateThumbnailWithTimeout(ctx, defaultPreviewTimeout, source, kind, size, target)
-}
-
 func (s *Server) generateThumbnail(ctx context.Context, source, kind string, size int, target string) error {
 	return generateThumbnailWithTimeout(ctx, s.previewTimeout(), source, kind, size, target)
 }

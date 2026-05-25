@@ -91,3 +91,38 @@ test("mobile layout keeps core navigation usable", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Admin" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Users" })).toBeVisible();
 });
+
+test("tablet layout keeps browse, preview, trash, and admin usable", async ({ page }) => {
+  await page.setViewportSize({ width: 768, height: 1024 });
+  const uploadedName = `tablet-note-${Date.now()}.txt`;
+
+  await login(page);
+
+  await expect(page.getByRole("button", { name: "Open navigation" })).toHaveCount(0);
+  await expect(page.locator(".sidebar")).toBeVisible();
+  await expect(page.getByPlaceholder("Search files…").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "New folder" })).toBeVisible();
+  await expect(page.getByTitle("Grid view")).toBeVisible();
+  await expect(page.getByTitle("List view")).toBeVisible();
+
+  await page.locator('input[type="file"]').setInputFiles({
+    name: uploadedName,
+    mimeType: "text/plain",
+    buffer: Buffer.from("Tablet viewport preview fixture.\n")
+  });
+  await expect(fileCard(page, uploadedName)).toBeVisible();
+
+  await fileCard(page, uploadedName).dblclick();
+  const viewer = page.getByRole("dialog", { name: uploadedName });
+  await expect(viewer).toBeVisible();
+  await expect(viewer.getByText("Tablet viewport preview fixture.")).toBeVisible();
+  await viewer.getByRole("button", { name: "Back" }).click();
+
+  await page.getByRole("button", { name: "Trash" }).click();
+  await expect(page.locator(".trash-panel")).toBeVisible();
+  await page.locator(".trash-panel").getByRole("button", { name: "×" }).click();
+
+  await page.getByTitle("Admin").click();
+  await expect(page.locator(".admin-panel")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Users" })).toBeVisible();
+});

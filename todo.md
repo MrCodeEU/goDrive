@@ -153,10 +153,10 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
 
 ## Testing And Quality Gates
 
-- [ ] Keep `make check` green.
-  - Go fmt/vet/lint/tests.
-  - Web type-check/tests/build.
-  - Mobile analyze/tests.
+- [x] Keep `make check` green.
+  - [x] Go fmt/vet/lint/tests.
+  - [x] Web type-check/tests/build.
+  - [x] Mobile analyze/tests.
 - [x] Reduce hosted GitHub Actions minute usage.
   - Local-first workflow validation with `act`.
   - Scheduled/manual security scans.
@@ -220,9 +220,10 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
 - [ ] Make file grid/list/masonry views usable on phone widths without text overlap or horizontal scrolling.
 - [ ] Rework action toolbars into touch-friendly grouped controls.
 - [ ] Make preview, info, trash, admin, upload queue, and modal dialogs fit small screens.
-- [ ] Add viewport checks for phone, tablet, and desktop to the release gate.
+- [x] Add viewport checks for phone, tablet, and desktop to the release gate.
+  - [x] Desktop full workflow coverage.
   - [x] Add a Playwright mobile navigation/admin smoke test.
-  - [ ] Add tablet coverage.
+  - [x] Add tablet coverage.
 
 ## Demo Instance
 
