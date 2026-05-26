@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Background -->
+  <rect width="64" height="64" rx="14" fill="#e8f5fd"/>
+
+  <!-- Folder tab -->
+  <rect x="6" y="15" width="23" height="12" rx="4" fill="#17a8eb"/>
+
+  <!-- Folder body -->
+  <rect x="6" y="21" width="52" height="35" rx="5" fill="#17a8eb"/>
+
+  <!-- Folder front highlight -->
+  <rect x="6" y="28" width="52" height="28" rx="5" fill="#5bcdf5"/>
+
+  <!--
+    G — center (32,40), outer r=10.5, inner r=6, 50° gap upper-right
+
+    Outer arc: from (38.7, 32) [θ=310°] CCW large (310°) to (42.5, 40) [θ=0°]
+    Crossbar:  (42.5,40) → (42.5,46) → (32,46)
+    Inner arc: from (32, 46) [θ=90°] CCW small (140°) to (35.9, 35.4) [θ=310°]
+    Close:     line back to outer start
+  -->
+  <path fill="#0a2436"
+        d="M38.7 32 A10.5 10.5 0 1 0 42.5 40 L42.5 46 L32 46 A6 6 0 0 0 35.9 35.4 Z"/>
+</svg>
