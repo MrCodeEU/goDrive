@@ -189,11 +189,11 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
 - [x] Add issue templates.
 - [x] Add pull request template.
 - [x] Add `CODE_OF_CONDUCT.md` if desired.
-- [ ] Clean repository artifacts before publishing.
-  - No build outputs.
-  - No local IDE files.
-  - No generated temporary files.
-  - No secrets or local `.env`.
+- [x] Clean repository artifacts before publishing.
+  - [x] No build outputs.
+  - [x] No local IDE files.
+  - [x] No generated temporary files.
+  - [x] No secrets or local `.env`.
 - [x] Review README for public users.
   - [x] Quick start.
   - [x] Docker deployment.
@@ -214,12 +214,12 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
 
 ## Web UI Responsiveness
 
-- [ ] Treat the web app as desktop-first until a responsive pass is complete.
-- [ ] Redesign the web app visually while keeping it dense, practical, and file-manager focused.
-- [ ] Add a mobile navigation model for the sidebar, path bar, search, uploads, trash, and admin entry points.
-- [ ] Make file grid/list/masonry views usable on phone widths without text overlap or horizontal scrolling.
-- [ ] Rework action toolbars into touch-friendly grouped controls.
-- [ ] Make preview, info, trash, admin, upload queue, and modal dialogs fit small screens.
+- [x] Treat the web app as desktop-first until a responsive pass is complete.
+- [x] Redesign the web app visually while keeping it dense, practical, and file-manager focused.
+- [x] Add a mobile navigation model for the sidebar, path bar, search, uploads, trash, and admin entry points.
+- [x] Make file grid/list/masonry views usable on phone widths without text overlap or horizontal scrolling.
+- [x] Rework action toolbars into touch-friendly grouped controls.
+- [x] Make preview, info, trash, admin, upload queue, and modal dialogs fit small screens.
 - [x] Add viewport checks for phone, tablet, and desktop to the release gate.
   - [x] Desktop full workflow coverage.
   - [x] Add a Playwright mobile navigation/admin smoke test.
