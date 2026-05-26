@@ -12,3 +12,4 @@ web/test-results/
 /godrive
 .claude/worktrees/
 .playwright-mcp/
+site/
