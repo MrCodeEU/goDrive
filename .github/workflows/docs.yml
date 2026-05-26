@@ -9,6 +9,7 @@ on:
       - 'CONTRIBUTING.md'
       - 'CHANGELOG.md'
       - 'README.md'
+      - 'requirements.txt'
   workflow_dispatch:
 
 permissions:
@@ -36,7 +37,7 @@ jobs:
           python-version: '3.x'
           cache: pip
 
-      - run: pip install mkdocs-material mkdocs-minify-plugin
+      - run: pip install -r requirements.txt
 
       - run: mkdocs build --strict
 
