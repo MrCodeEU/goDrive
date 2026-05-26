@@ -25,9 +25,10 @@ theme:
   font:
     text: Inter
     code: JetBrains Mono
+  logo: assets/logo.svg
+  favicon: assets/logo.svg
   icon:
     repo: fontawesome/brands/github
-    logo: material/cloud-upload
   features:
     - navigation.instant
     - navigation.instant.progress
