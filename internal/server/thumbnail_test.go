@@ -525,7 +525,7 @@ func TestPreviewCommandSpecUsesPrlimitWhenAvailable(t *testing.T) {
 	}
 	want := []string{
 		"--cpu=120",
-		"--as=4294967296",
+		"--as=536870912",
 		"--fsize=536870912",
 		"--nofile=256",
 		"--",
@@ -535,6 +535,22 @@ func TestPreviewCommandSpecUsesPrlimitWhenAvailable(t *testing.T) {
 	if !reflect.DeepEqual(args, want) {
 		t.Fatalf("args = %#v, want %#v", args, want)
 	}
+}
+
+func TestGenerateThumbnailHonorsPreviewSemaphore(t *testing.T) {
+	t.Parallel()
+
+	srv := New(config.Config{PreviewDir: t.TempDir(), PreviewWorkers: 1}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	srv.previewSem <- struct{}{}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	err := srv.generateThumbnail(ctx, filepath.Join(t.TempDir(), "missing.jpg"), "image", 96, filepath.Join(t.TempDir(), "thumb.jpg"))
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("generateThumbnail err = %v, want deadline exceeded while waiting for semaphore", err)
+	}
+
+	<-srv.previewSem
 }
 
 func TestPreviewCommandSpecFallsBackWithoutPrlimit(t *testing.T) {

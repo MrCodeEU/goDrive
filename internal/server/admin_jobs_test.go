@@ -1,8 +1,12 @@
 package server
 
 import (
+	"io"
+	"log/slog"
 	"runtime"
 	"testing"
+
+	"godrive/internal/config"
 )
 
 func TestPreviewWarmupWorkerCount(t *testing.T) {
@@ -23,6 +27,20 @@ func TestPreviewWarmupWorkerCount(t *testing.T) {
 	}
 	if runtime.NumCPU() >= previewWarmupMinJobs*2 && got != runtime.NumCPU()/2 {
 		t.Fatalf("auto workers = %d, want %d", got, runtime.NumCPU()/2)
+	}
+}
+
+func TestServerPreviewSemaphoreUsesWorkerLimit(t *testing.T) {
+	t.Parallel()
+
+	srv := New(config.Config{PreviewWorkers: 3}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if got := cap(srv.previewSem); got != 3 {
+		t.Fatalf("preview semaphore capacity = %d, want 3", got)
+	}
+
+	srv = New(config.Config{}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if got := cap(srv.previewSem); got != previewWarmupWorkerCount(0) {
+		t.Fatalf("preview semaphore capacity = %d, want auto worker count", got)
 	}
 }
 

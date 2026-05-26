@@ -26,6 +26,8 @@ services:
       GODRIVE_DEMO_USER: demo
       GODRIVE_DEMO_PASSWORD: demo
       GODRIVE_DEV_LATENCY: 20ms-80ms
+      GODRIVE_PREVIEW_WORKERS: "2"
+      VIPS_CONCURRENCY: "1"
     healthcheck:
       test: ["CMD", "/usr/local/bin/godrive", "status"]
       interval: 1m

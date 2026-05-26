@@ -26,6 +26,7 @@ type Server struct {
 	watcher    *watch.Watcher
 	loginLimit *loginLimiter
 	httpServer *http.Server
+	previewSem chan struct{}
 	eventsMu   sync.Mutex
 	eventsSubs map[int64]map[chan WebhookEvent]struct{}
 }
@@ -38,6 +39,7 @@ func New(cfg config.Config, st *store.Store, fileService *files.Service, log *sl
 		log:        log,
 		jobs:       NewAdminJobs(),
 		loginLimit: newLoginLimiter(),
+		previewSem: make(chan struct{}, previewWorkerLimit(cfg.PreviewWorkers)),
 		eventsSubs: make(map[int64]map[chan WebhookEvent]struct{}),
 	}
 	server.httpServer = &http.Server{

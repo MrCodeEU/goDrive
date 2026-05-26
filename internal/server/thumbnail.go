@@ -29,7 +29,7 @@ const (
 	defaultPreviewTimeout   = 45 * time.Second
 	previewCommandOutputCap = 32 * 1024
 	previewCommandCPUTime   = 120
-	previewCommandMemory    = 4 * 1024 * 1024 * 1024
+	previewCommandMemory    = 512 * 1024 * 1024
 	previewCommandFileSize  = 512 * 1024 * 1024
 	previewCommandOpenFiles = 256
 )
@@ -199,6 +199,14 @@ func thumbnailCachePathInode(cacheRoot string, userID int64, logical string, inf
 }
 
 func (s *Server) generateThumbnail(ctx context.Context, source, kind string, size int, target string) error {
+	if s.previewSem != nil {
+		select {
+		case s.previewSem <- struct{}{}:
+			defer func() { <-s.previewSem }()
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 	return generateThumbnailWithTimeout(ctx, s.previewTimeout(), source, kind, size, target)
 }
 

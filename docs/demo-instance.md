@@ -103,6 +103,8 @@ The demo compose file sets:
 
 The tmpfs limits need to leave room for preview cache and LibreOffice scratch data. The checked-in compose uses a larger `/tmp` and `/appdata` than the old lightweight image because the demo now exercises the real preview stack.
 
+The demo image also keeps preview generation deliberately conservative: preview workers are capped and libvips runs with `VIPS_CONCURRENCY=1`. This avoids memory spikes when a browser opens a large thumbnail-heavy folder and many cache misses arrive at once.
+
 ## Reverse Proxy Notes
 
 Use HTTPS at the reverse proxy. The demo expects secure cookies:

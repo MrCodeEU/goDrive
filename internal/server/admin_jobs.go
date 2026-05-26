@@ -724,6 +724,10 @@ func (s *Server) warmPreview(ctx context.Context, task previewWarmupTask) previe
 }
 
 func previewWarmupWorkerCount(configured int) int {
+	return previewWorkerLimit(configured)
+}
+
+func previewWorkerLimit(configured int) int {
 	if configured > 0 {
 		if configured > previewWarmupMaxJobs {
 			return previewWarmupMaxJobs
