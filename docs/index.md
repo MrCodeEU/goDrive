@@ -185,6 +185,6 @@ cp .env.example .env
 docker compose -f deploy/docker-compose.yml up -d
 ```
 
-[:material-rocket-launch: Full Quick Start Guide](getting-started/quick-start.md){ .btn-primary }
+<a href="getting-started/quick-start/" class="btn-primary">:material-rocket-launch: Full Quick Start Guide</a>
 
 </div>

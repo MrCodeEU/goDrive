@@ -78,6 +78,7 @@ nav:
     - Quick Start: getting-started/quick-start.md
     - Configuration: getting-started/configuration.md
     - Deployment: getting-started/deployment.md
+    - Demo Instance: demo-instance.md
   - Features:
     - Overview: features/overview.md
     - Web UI: features/web-ui.md
@@ -101,4 +102,4 @@ extra:
       link: https://github.com/MrCodeEU/goDrive
   generator: false
 
-copyright: Copyright &copy; 2025 MrCodeEU
+copyright: Copyright &copy; 2026 MrCodeEU
