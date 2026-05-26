@@ -90,7 +90,11 @@ class UploadItem {
 
 class UploadQueue extends ChangeNotifier {
   final List<UploadItem> _items = [];
+  final List<int> _retryDelays;
   bool _running = false;
+
+  UploadQueue({List<int> retryDelays = const [5, 15, 45]})
+      : _retryDelays = retryDelays;
 
   List<UploadItem> get items => List.unmodifiable(_items);
 
@@ -198,13 +202,6 @@ class UploadQueue extends ChangeNotifier {
       Future<void> worker() async {
         while (idx < queued.length) {
           final item = queued[idx++];
-          if (item.file == null) {
-            item.status = UploadStatus.interrupted;
-            item.error = 'File is no longer available on this device';
-            notifyListeners();
-            await _persist();
-            continue;
-          }
           await _uploadOne(item, tus, onComplete: onComplete);
         }
       }
@@ -223,13 +220,6 @@ class UploadQueue extends ChangeNotifier {
   Future<void> retry(UploadItem item, TusClient tus,
       {void Function(String path)? onComplete}) async {
     if (_running) return;
-    if (item.file == null) {
-      item.status = UploadStatus.interrupted;
-      item.error = 'File is no longer available on this device';
-      notifyListeners();
-      await _persist();
-      return;
-    }
     item.status = UploadStatus.queued;
     item.error = null;
     item.progress = 0;
@@ -286,14 +276,22 @@ class UploadQueue extends ChangeNotifier {
 
   Future<void> _uploadOne(UploadItem item, TusClient tus,
       {void Function(String path)? onComplete}) async {
-    const maxAutoRetries = 3;
-    const backoffSeconds = [5, 15, 45];
+    final maxAutoRetries = _retryDelays.length;
+
+    if (item.file == null || !item.file!.existsSync()) {
+      item.status = UploadStatus.interrupted;
+      item.error = 'File is no longer available on this device';
+      notifyListeners();
+      await _persist();
+      return;
+    }
 
     for (var attempt = 0; attempt <= maxAutoRetries; attempt++) {
       if (attempt > 0) {
         item.error = 'Retrying ($attempt/$maxAutoRetries)…';
         notifyListeners();
-        await Future<void>.delayed(Duration(seconds: backoffSeconds[attempt - 1]));
+        await Future<void>.delayed(
+            Duration(seconds: _retryDelays[attempt - 1]));
       }
 
       item.status = UploadStatus.uploading;

@@ -4,7 +4,8 @@ class BreadcrumbBar extends StatelessWidget {
   final String path;
   final void Function(String path) onNavigate;
 
-  const BreadcrumbBar({super.key, required this.path, required this.onNavigate});
+  const BreadcrumbBar(
+      {super.key, required this.path, required this.onNavigate});
 
   List<(String label, String path)> get _segments {
     final parts = path.split('/').where((p) => p.isNotEmpty).toList();
@@ -45,7 +46,8 @@ class BreadcrumbBar extends StatelessWidget {
               onPressed: isLast ? null : () => onNavigate(segPath),
               child: Text(
                 label,
-                style: TextStyle(fontWeight: isLast ? FontWeight.w600 : FontWeight.normal),
+                style: TextStyle(
+                    fontWeight: isLast ? FontWeight.w600 : FontWeight.normal),
               ),
             ),
           );

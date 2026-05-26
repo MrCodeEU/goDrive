@@ -23,14 +23,18 @@ class AuthState extends ChangeNotifier {
           _user = await _client!.me();
         } catch (_) {
           _client = null;
-          try { await clearSession(); } catch (_) {}
+          try {
+            await clearSession();
+          } catch (_) {}
         }
       }
     } catch (e) {
       // Keystore / secure storage failure on first run — start fresh.
       _client = null;
       _user = null;
-      try { await clearSession(); } catch (_) {}
+      try {
+        await clearSession();
+      } catch (_) {}
     } finally {
       _loading = false;
       notifyListeners();
@@ -46,8 +50,12 @@ class AuthState extends ChangeNotifier {
   }
 
   Future<void> logout() async {
-    try { await _client?.logout(); } catch (_) {}
-    try { await clearSession(); } catch (_) {}
+    try {
+      await _client?.logout();
+    } catch (_) {}
+    try {
+      await clearSession();
+    } catch (_) {}
     _client = null;
     _user = null;
     notifyListeners();

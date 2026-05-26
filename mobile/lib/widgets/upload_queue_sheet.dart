@@ -250,21 +250,20 @@ class _GroupedList extends StatelessWidget {
             i.status == UploadStatus.uploading ||
             i.status == UploadStatus.background)
         .toList();
-    final queued =
-        items.where((i) => i.status == UploadStatus.queued).toList();
+    final queued = items.where((i) => i.status == UploadStatus.queued).toList();
     final failed = items
         .where((i) =>
             i.status == UploadStatus.error ||
             i.status == UploadStatus.interrupted)
         .toList();
-    final done =
-        items.where((i) => i.status == UploadStatus.done).toList();
+    final done = items.where((i) => i.status == UploadStatus.done).toList();
 
     final sections = <Widget>[];
 
     void addSection(String label, Color color, List<UploadItem> sectionItems) {
       if (sectionItems.isEmpty) return;
-      sections.add(_SectionHeader(label: label, count: sectionItems.length, color: color));
+      sections.add(_SectionHeader(
+          label: label, count: sectionItems.length, color: color));
       for (final item in sectionItems) {
         sections.add(_UploadItemTile(
           item: item,
@@ -297,7 +296,8 @@ class _SectionHeader extends StatelessWidget {
   final int count;
   final Color color;
 
-  const _SectionHeader({required this.label, required this.count, required this.color});
+  const _SectionHeader(
+      {required this.label, required this.count, required this.color});
 
   @override
   Widget build(BuildContext context) {
@@ -313,9 +313,7 @@ class _SectionHeader extends StatelessWidget {
           const SizedBox(width: 8),
           Text(label,
               style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: color)),
+                  fontSize: 12, fontWeight: FontWeight.w600, color: color)),
           const SizedBox(width: 6),
           Text('$count',
               style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),

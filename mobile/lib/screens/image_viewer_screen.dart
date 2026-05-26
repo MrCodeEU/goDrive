@@ -37,13 +37,16 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
 
   FileEntry get _entry => widget.entries[_current];
 
-  String _imageUrl(FileEntry entry) =>
-      _original ? widget.client.rawFileUrl(entry.path) : widget.client.thumbnailUrl(entry.path, 2048);
+  String _imageUrl(FileEntry entry) => _original
+      ? widget.client.rawFileUrl(entry.path)
+      : widget.client.thumbnailUrl(entry.path, 2048);
 
   String _formatBytes(int bytes) {
     if (bytes < 1024) return '$bytes B';
     if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    if (bytes < 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
     return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
   }
 
@@ -66,13 +69,17 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
               ),
               actions: [
                 IconButton(
-                  icon: Icon(_showInfo ? Icons.info : Icons.info_outline, color: Colors.white),
+                  icon: Icon(_showInfo ? Icons.info : Icons.info_outline,
+                      color: Colors.white),
                   tooltip: 'File info',
                   onPressed: () => setState(() => _showInfo = !_showInfo),
                 ),
                 TextButton(
                   style: TextButton.styleFrom(foregroundColor: Colors.white),
-                  onPressed: () => setState(() { _original = !_original; _showInfo = false; }),
+                  onPressed: () => setState(() {
+                    _original = !_original;
+                    _showInfo = false;
+                  }),
                   child: Text(_original ? 'Preview' : 'Original'),
                 ),
               ],
@@ -81,11 +88,17 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
       body: Stack(
         children: [
           GestureDetector(
-            onTap: () => setState(() { _showHud = !_showHud; if (!_showHud) _showInfo = false; }),
+            onTap: () => setState(() {
+              _showHud = !_showHud;
+              if (!_showHud) _showInfo = false;
+            }),
             child: PhotoViewGallery.builder(
               pageController: _ctrl,
               itemCount: widget.entries.length,
-              onPageChanged: (i) => setState(() { _current = i; _showInfo = false; }),
+              onPageChanged: (i) => setState(() {
+                _current = i;
+                _showInfo = false;
+              }),
               builder: (context, index) {
                 final entry = widget.entries[index];
                 return PhotoViewGalleryPageOptions(
@@ -98,16 +111,20 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
                   heroAttributes: PhotoViewHeroAttributes(tag: entry.path),
                 );
               },
-              loadingBuilder: (_, __) => const Center(child: CircularProgressIndicator()),
+              loadingBuilder: (_, __) =>
+                  const Center(child: CircularProgressIndicator()),
               backgroundDecoration: const BoxDecoration(color: Colors.black),
             ),
           ),
           // Metadata overlay
           if (_showInfo && _showHud)
             Positioned(
-              left: 0, right: 0, bottom: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
               child: Container(
-                padding: EdgeInsets.fromLTRB(16, 16, 16, MediaQuery.of(context).padding.bottom + 16),
+                padding: EdgeInsets.fromLTRB(
+                    16, 16, 16, MediaQuery.of(context).padding.bottom + 16),
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.bottomCenter,
@@ -119,13 +136,23 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(_entry.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15)),
+                    Text(_entry.name,
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15)),
                     const SizedBox(height: 6),
                     _infoRow(Icons.storage_outlined, _formatBytes(_entry.size)),
-                    _infoRow(Icons.calendar_today_outlined, _formatDate(_entry.modifiedAt.toLocal())),
+                    _infoRow(Icons.calendar_today_outlined,
+                        _formatDate(_entry.modifiedAt.toLocal())),
                     if (_entry.mimeType != null)
                       _infoRow(Icons.code_outlined, _entry.mimeType!),
-                    _infoRow(Icons.folder_outlined, _entry.path.contains('/') ? _entry.path.substring(0, _entry.path.lastIndexOf('/')) : '/'),
+                    _infoRow(
+                        Icons.folder_outlined,
+                        _entry.path.contains('/')
+                            ? _entry.path
+                                .substring(0, _entry.path.lastIndexOf('/'))
+                            : '/'),
                   ],
                 ),
               ),
@@ -140,16 +167,23 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+                      icon:
+                          const Icon(Icons.arrow_back_ios, color: Colors.white),
                       onPressed: _current > 0
-                          ? () => _ctrl.previousPage(duration: const Duration(milliseconds: 200), curve: Curves.easeInOut)
+                          ? () => _ctrl.previousPage(
+                              duration: const Duration(milliseconds: 200),
+                              curve: Curves.easeInOut)
                           : null,
                     ),
-                    Text('${_current + 1} / ${widget.entries.length}', style: const TextStyle(color: Colors.white)),
+                    Text('${_current + 1} / ${widget.entries.length}',
+                        style: const TextStyle(color: Colors.white)),
                     IconButton(
-                      icon: const Icon(Icons.arrow_forward_ios, color: Colors.white),
+                      icon: const Icon(Icons.arrow_forward_ios,
+                          color: Colors.white),
                       onPressed: _current < widget.entries.length - 1
-                          ? () => _ctrl.nextPage(duration: const Duration(milliseconds: 200), curve: Curves.easeInOut)
+                          ? () => _ctrl.nextPage(
+                              duration: const Duration(milliseconds: 200),
+                              curve: Curves.easeInOut)
                           : null,
                     ),
                   ],
@@ -166,7 +200,10 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
           children: [
             Icon(icon, size: 14, color: Colors.white54),
             const SizedBox(width: 6),
-            Expanded(child: Text(text, style: const TextStyle(color: Colors.white70, fontSize: 13), overflow: TextOverflow.ellipsis)),
+            Expanded(
+                child: Text(text,
+                    style: const TextStyle(color: Colors.white70, fontSize: 13),
+                    overflow: TextOverflow.ellipsis)),
           ],
         ),
       );

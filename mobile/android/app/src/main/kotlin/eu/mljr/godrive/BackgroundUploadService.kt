@@ -17,6 +17,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import java.util.Collections
 import kotlin.concurrent.thread
 
 class BackgroundUploadService : Service() {
@@ -32,17 +33,46 @@ class BackgroundUploadService : Service() {
         val notificationId = request.id.hashCode().let { if (it == Int.MIN_VALUE) 1 else kotlin.math.abs(it) }
         ensureChannel()
         startForeground(notificationId, notification(request.filename, "Preparing upload", 0, false))
+        activeIds.add(request.id)
 
         thread(name = "godrive-background-upload-${request.id}") {
+            val backoffMs = longArrayOf(15_000L, 45_000L, 90_000L)
+            var lastError: Exception? = null
+
             try {
-                updateQueue(request.id, status = "background", error = null, finalPath = null, tusUrl = request.tusUrl)
-                val finalPath = upload(request, notificationId)
-                updateQueue(request.id, status = "done", error = null, finalPath = finalPath, tusUrl = request.tusUrl, progress = 1.0)
-                notify(notificationId, notification(request.filename, "Upload complete", 100, false))
-            } catch (e: Exception) {
-                updateQueue(request.id, status = "error", error = e.message ?: "Background upload failed", finalPath = null, tusUrl = request.tusUrl)
-                notify(notificationId, notification(request.filename, "Upload failed", 0, false))
+                for (attempt in 0..backoffMs.size) {
+                    if (attempt > 0) {
+                        updateQueue(
+                            request.id,
+                            status = "background",
+                            error = "Network error, retrying ($attempt/${backoffMs.size})…",
+                            finalPath = null,
+                            tusUrl = request.tusUrl,
+                        )
+                        notify(notificationId, notification(request.filename, "Retrying upload…", 0, true))
+                        Thread.sleep(backoffMs[attempt - 1])
+                    }
+                    try {
+                        updateQueue(request.id, status = "background", error = null, finalPath = null, tusUrl = request.tusUrl)
+                        val finalPath = upload(request, notificationId)
+                        updateQueue(request.id, status = "done", error = null, finalPath = finalPath, tusUrl = request.tusUrl, progress = 1.0)
+                        notify(notificationId, notification(request.filename, "Upload complete", 100, false))
+                        lastError = null
+                        break
+                    } catch (e: java.io.IOException) {
+                        lastError = e
+                        if (attempt == backoffMs.size) break
+                    } catch (e: Exception) {
+                        lastError = e
+                        break
+                    }
+                }
+                if (lastError != null) {
+                    updateQueue(request.id, status = "error", error = lastError!!.message ?: "Background upload failed", finalPath = null, tusUrl = request.tusUrl)
+                    notify(notificationId, notification(request.filename, "Upload failed", 0, false))
+                }
             } finally {
+                activeIds.remove(request.id)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                     stopForeground(STOP_FOREGROUND_DETACH)
                 } else {
@@ -53,7 +83,7 @@ class BackgroundUploadService : Service() {
             }
         }
 
-        return START_NOT_STICKY
+        return START_REDELIVER_INTENT
     }
 
     private fun upload(request: UploadRequest, notificationId: Int): String? {
@@ -121,7 +151,7 @@ class BackgroundUploadService : Service() {
             requestMethod = "PATCH"
             doOutput = true
             connectTimeout = 15000
-            readTimeout = 60000
+            readTimeout = 300_000
             setRequestProperty("Authorization", "Bearer ${request.token}")
             setRequestProperty("Content-Type", "application/offset+octet-stream")
             setRequestProperty("Tus-Resumable", "1.0.0")
@@ -274,5 +304,9 @@ class BackgroundUploadService : Service() {
     companion object {
         private const val CHANNEL_ID = "godrive_uploads"
         private const val DEFAULT_BUFFER_SIZE = 256 * 1024
+
+        private val activeIds: MutableSet<String> = Collections.synchronizedSet(mutableSetOf())
+
+        fun isActive(id: String): Boolean = activeIds.contains(id)
     }
 }

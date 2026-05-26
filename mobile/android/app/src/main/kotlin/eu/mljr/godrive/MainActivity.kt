@@ -7,6 +7,7 @@ import android.os.Build
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import org.json.JSONArray
 
 class MainActivity : FlutterActivity() {
     private var notificationPermissionResult: MethodChannel.Result? = null
@@ -18,7 +19,28 @@ class MainActivity : FlutterActivity() {
                 when (call.method) {
                     "isSupported" -> result.success(true)
                     "ensureNotificationPermission" -> ensureNotificationPermission(result)
-                    "refreshUploads" -> result.success(null)
+                    "refreshUploads" -> {
+                        val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
+                        val key = "flutter.godrive_upload_queue"
+                        val raw = prefs.getString(key, null)
+                        if (raw != null) {
+                            val array = try { JSONArray(raw) } catch (_: Exception) { null }
+                            if (array != null) {
+                                var changed = false
+                                for (i in 0 until array.length()) {
+                                    val item = array.optJSONObject(i) ?: continue
+                                    if (item.optString("status") != "background") continue
+                                    val id = item.optString("id")
+                                    if (id.isNotEmpty() && !BackgroundUploadService.isActive(id)) {
+                                        item.put("status", "interrupted")
+                                        changed = true
+                                    }
+                                }
+                                if (changed) prefs.edit().putString(key, array.toString()).apply()
+                            }
+                        }
+                        result.success(null)
+                    }
                     "startUpload" -> {
                         val args = call.arguments as? Map<*, *>
                         if (args == null) {

@@ -13,8 +13,13 @@ class ApiException implements Exception {
 class ApiClient {
   final String baseUrl;
   final String token;
+  final http.Client _http;
 
-  const ApiClient({required this.baseUrl, required this.token});
+  ApiClient({
+    required this.baseUrl,
+    required this.token,
+    http.Client? httpClient,
+  }) : _http = httpClient ?? http.Client();
 
   Map<String, String> get _headers => {
         'Content-Type': 'application/json',
@@ -47,32 +52,37 @@ class ApiClient {
 
   Future<Map<String, dynamic>> _get(String path,
       [Map<String, String>? params]) async {
-    final resp = await http.get(_uri(path, params), headers: _headers);
+    final resp = await _http.get(_uri(path, params), headers: _headers);
     return _parseResponse(resp);
   }
 
   Future<Map<String, dynamic>> _post(String path, Object body) async {
     final resp =
-        await http.post(_uri(path), headers: _headers, body: jsonEncode(body));
+        await _http.post(_uri(path), headers: _headers, body: jsonEncode(body));
     return _parseResponse(resp);
   }
 
   Future<Map<String, dynamic>> _patch(String path, Object body) async {
-    final resp =
-        await http.patch(_uri(path), headers: _headers, body: jsonEncode(body));
+    final resp = await _http.patch(_uri(path),
+        headers: _headers, body: jsonEncode(body));
     return _parseResponse(resp);
   }
 
   Future<Map<String, dynamic>> _delete(String path,
       [Map<String, String>? params]) async {
-    final resp = await http.delete(_uri(path, params), headers: _headers);
+    final resp = await _http.delete(_uri(path, params), headers: _headers);
     return _parseResponse(resp);
   }
 
   // Auth
   static Future<(String token, User user)> login(
-      String baseUrl, String username, String password) async {
-    final resp = await http.post(
+    String baseUrl,
+    String username,
+    String password, {
+    http.Client? httpClient,
+  }) async {
+    final client = httpClient ?? http.Client();
+    final resp = await client.post(
       Uri.parse(
           '${baseUrl.trimRight().replaceAll(RegExp(r'/$'), '')}/api/auth/login'),
       headers: {

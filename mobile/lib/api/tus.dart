@@ -21,15 +21,19 @@ class TusUpload {
 
 class TusClient {
   final ApiClient api;
+  final http.Client _http;
 
-  const TusClient(this.api);
+  TusClient(this.api, {http.Client? httpClient})
+      : _http = httpClient ?? http.Client();
 
   // Create a new upload, returns the TUS URL (Location header).
-  Future<String> create(String targetPath, String filename, int fileSize) async {
+  Future<String> create(
+      String targetPath, String filename, int fileSize) async {
     final base = api.baseUrl.trimRight().replaceAll(RegExp(r'/$'), '');
-    final uri = Uri.parse('$base/api/tus').replace(queryParameters: {'path': targetPath});
+    final uri = Uri.parse('$base/api/tus')
+        .replace(queryParameters: {'path': targetPath});
 
-    final resp = await http.post(uri, headers: {
+    final resp = await _http.post(uri, headers: {
       ...api.authHeader,
       'Tus-Resumable': '1.0.0',
       'Upload-Length': '$fileSize',
@@ -55,7 +59,7 @@ class TusClient {
   // Resume: HEAD to get current offset.
   Future<int> getOffset(String tusUrl) async {
     final uri = _resolveUrl(tusUrl);
-    final resp = await http.head(uri, headers: {
+    final resp = await _http.head(uri, headers: {
       ...api.authHeader,
       'Tus-Resumable': '1.0.0',
     });
@@ -101,7 +105,7 @@ class TusClient {
       cancelOnError: true,
     );
 
-    final resp = await http.Client().send(req);
+    final resp = await _http.send(req);
     final respBody = await resp.stream.bytesToString();
 
     if (resp.statusCode >= 200 && resp.statusCode < 300) {

@@ -62,7 +62,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       ),
       body: SafeArea(
         child: _error != null
-            ? Center(child: Text(_error!, style: const TextStyle(color: Colors.white70)))
+            ? Center(
+                child: Text(_error!,
+                    style: const TextStyle(color: Colors.white70)))
             : _chewieCtrl == null
                 ? const Center(child: CircularProgressIndicator())
                 : Chewie(controller: _chewieCtrl!),

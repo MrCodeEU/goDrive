@@ -35,13 +35,16 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-    setState(() { _busy = true; _error = null; });
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     try {
       await context.read<AuthState>().login(
-        _urlCtrl.text.trim(),
-        _userCtrl.text.trim(),
-        _passCtrl.text,
-      );
+            _urlCtrl.text.trim(),
+            _userCtrl.text.trim(),
+            _passCtrl.text,
+          );
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } catch (e) {
@@ -66,11 +69,15 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Icon(Icons.folder_open_rounded, size: 56, color: cs.primary),
+                    Icon(Icons.folder_open_rounded,
+                        size: 56, color: cs.primary),
                     const SizedBox(height: 12),
                     Text(
                       'goDrive',
-                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold),
+                      style: Theme.of(context)
+                          .textTheme
+                          .headlineMedium
+                          ?.copyWith(fontWeight: FontWeight.bold),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 32),
@@ -84,7 +91,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       keyboardType: TextInputType.url,
                       autocorrect: false,
-                      validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                      validator: (v) =>
+                          (v == null || v.trim().isEmpty) ? 'Required' : null,
                     ),
                     const SizedBox(height: 16),
                     TextFormField(
@@ -95,7 +103,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         prefixIcon: Icon(Icons.person_outline),
                       ),
                       autocorrect: false,
-                      validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                      validator: (v) =>
+                          (v == null || v.trim().isEmpty) ? 'Required' : null,
                     ),
                     const SizedBox(height: 16),
                     TextFormField(
@@ -107,24 +116,30 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       obscureText: true,
                       onFieldSubmitted: (_) => _submit(),
-                      validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+                      validator: (v) =>
+                          (v == null || v.isEmpty) ? 'Required' : null,
                     ),
                     if (_error != null) ...[
                       const SizedBox(height: 12),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
                         decoration: BoxDecoration(
                           color: cs.errorContainer,
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Text(_error!, style: TextStyle(color: cs.onErrorContainer)),
+                        child: Text(_error!,
+                            style: TextStyle(color: cs.onErrorContainer)),
                       ),
                     ],
                     const SizedBox(height: 24),
                     FilledButton(
                       onPressed: _busy ? null : _submit,
                       child: _busy
-                          ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2))
                           : const Text('Sign in'),
                     ),
                   ],
