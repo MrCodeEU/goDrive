@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -215,6 +216,38 @@ void main() {
       expect(queue2.items.length, 1);
       expect(queue2.items.first.status, UploadStatus.done);
       expect(queue2.items.first.name, 'save.txt');
+
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('godrive_upload_queue');
+      final stored = jsonDecode(raw!) as Map<String, dynamic>;
+      expect(stored['version'], 1);
+      expect(stored['items'], isA<List<dynamic>>());
+    });
+
+    test('restores legacy array queue payloads', () async {
+      final file = await tmpFile('legacy.txt');
+      SharedPreferences.setMockInitialValues({
+        'godrive_upload_queue': jsonEncode([
+          {
+            'id': 'legacy-1',
+            'file_path': file.path,
+            'name': 'legacy.txt',
+            'file_size': await file.length(),
+            'target_path': '/docs',
+            'status': 'done',
+            'progress': 1.0,
+            'final_path': '/docs/legacy.txt',
+          }
+        ]),
+      });
+
+      final queue = UploadQueue();
+      await queue.refreshPersisted();
+
+      expect(queue.items.length, 1);
+      expect(queue.items.first.id, 'legacy-1');
+      expect(queue.items.first.status, UploadStatus.done);
+      expect(queue.items.first.finalPath, '/docs/legacy.txt');
     });
 
     test('queued-only items are not persisted', () async {

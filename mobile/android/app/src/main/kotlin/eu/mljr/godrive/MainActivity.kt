@@ -8,6 +8,8 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import org.json.JSONArray
+import org.json.JSONObject
+import org.json.JSONTokener
 
 class MainActivity : FlutterActivity() {
     private var notificationPermissionResult: MethodChannel.Result? = null
@@ -24,7 +26,7 @@ class MainActivity : FlutterActivity() {
                         val key = "flutter.godrive_upload_queue"
                         val raw = prefs.getString(key, null)
                         if (raw != null) {
-                            val array = try { JSONArray(raw) } catch (_: Exception) { null }
+                            val array = try { loadQueueItems(raw) } catch (_: Exception) { null }
                             if (array != null) {
                                 var changed = false
                                 for (i in 0 until array.length()) {
@@ -36,7 +38,7 @@ class MainActivity : FlutterActivity() {
                                         changed = true
                                     }
                                 }
-                                if (changed) prefs.edit().putString(key, array.toString()).apply()
+                                if (changed) prefs.edit().putString(key, encodeQueueItems(array)).apply()
                             }
                         }
                         result.success(null)
@@ -100,5 +102,22 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private const val REQUEST_NOTIFICATIONS = 4201
+        private const val QUEUE_SCHEMA_VERSION = 1
     }
+
+    private fun loadQueueItems(raw: String): JSONArray {
+        val value = JSONTokener(raw).nextValue()
+        return when (value) {
+            is JSONArray -> value
+            is JSONObject -> value.optJSONArray("items") ?: JSONArray()
+            else -> JSONArray()
+        }
+    }
+
+    private fun encodeQueueItems(items: JSONArray): String =
+        JSONObject()
+            .put("version", QUEUE_SCHEMA_VERSION)
+            .put("items", items)
+            .toString()
+
 }

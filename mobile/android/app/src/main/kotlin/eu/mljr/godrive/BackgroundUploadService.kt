@@ -10,6 +10,7 @@ import android.os.IBinder
 import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
+import org.json.JSONTokener
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileInputStream
@@ -241,7 +242,7 @@ class BackgroundUploadService : Service() {
     ) {
         val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
         val key = "flutter.godrive_upload_queue"
-        val array = JSONArray(prefs.getString(key, "[]"))
+        val array = loadQueueItems(prefs.getString(key, "[]"))
         for (i in 0 until array.length()) {
             val item = array.optJSONObject(i) ?: continue
             if (item.optString("id") != id) continue
@@ -250,10 +251,25 @@ class BackgroundUploadService : Service() {
             if (error == null) item.remove("error") else item.put("error", error)
             if (finalPath == null) item.remove("final_path") else item.put("final_path", finalPath)
             if (tusUrl == null) item.remove("tus_url") else item.put("tus_url", tusUrl)
-            prefs.edit().putString(key, array.toString()).apply()
+            prefs.edit().putString(key, encodeQueueItems(array)).apply()
             return
         }
     }
+
+    private fun loadQueueItems(raw: String?): JSONArray {
+        val value = JSONTokener(raw ?: "[]").nextValue()
+        return when (value) {
+            is JSONArray -> value
+            is JSONObject -> value.optJSONArray("items") ?: JSONArray()
+            else -> JSONArray()
+        }
+    }
+
+    private fun encodeQueueItems(items: JSONArray): String =
+        JSONObject()
+            .put("version", QUEUE_SCHEMA_VERSION)
+            .put("items", items)
+            .toString()
 
     private fun HttpURLConnection.readError(fallback: String): String {
         val stream = errorStream ?: inputStream ?: return fallback
@@ -304,6 +320,7 @@ class BackgroundUploadService : Service() {
     companion object {
         private const val CHANNEL_ID = "godrive_uploads"
         private const val DEFAULT_BUFFER_SIZE = 256 * 1024
+        private const val QUEUE_SCHEMA_VERSION = 1
 
         private val activeIds: MutableSet<String> = Collections.synchronizedSet(mutableSetOf())
 

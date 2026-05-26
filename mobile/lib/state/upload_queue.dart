@@ -9,6 +9,7 @@ import '../api/client.dart';
 import '../api/tus.dart';
 
 const _prefKey = 'godrive_upload_queue';
+const _queueSchemaVersion = 1;
 const _maxConcurrent = 3;
 
 enum UploadStatus { queued, uploading, background, done, error, interrupted }
@@ -43,6 +44,7 @@ class UploadItem {
   // JSON for persistence. The stored file path can be reopened only while the
   // platform keeps that picker path valid.
   Map<String, dynamic> toJson() => {
+        'schema_version': _queueSchemaVersion,
         'id': id,
         'file_path': filePath ?? file?.path,
         'name': name,
@@ -62,6 +64,10 @@ class UploadItem {
       };
 
   factory UploadItem.fromJson(Map<String, dynamic> j) {
+    final version = (j['schema_version'] as num?)?.toInt() ?? 1;
+    if (version != _queueSchemaVersion) {
+      throw FormatException('Unsupported upload queue item schema: $version');
+    }
     final filePath = j['file_path'] as String?;
     final file =
         filePath != null && File(filePath).existsSync() ? File(filePath) : null;
@@ -122,7 +128,7 @@ class UploadQueue extends ChangeNotifier {
       final raw = prefs.getString(_prefKey);
       if (raw != null) {
         try {
-          final list = jsonDecode(raw) as List<dynamic>;
+          final list = _decodePersistedQueue(raw);
           final restored = <UploadItem>[];
           for (final j in list) {
             restored.add(UploadItem.fromJson(j as Map<String, dynamic>));
@@ -159,8 +165,7 @@ class UploadQueue extends ChangeNotifier {
       if (persisted.isEmpty) {
         await prefs.remove(_prefKey);
       } else {
-        await prefs.setString(
-            _prefKey, jsonEncode(persisted.map((i) => i.toJson()).toList()));
+        await prefs.setString(_prefKey, _encodePersistedQueue(persisted));
       }
     } catch (_) {
       // Persistence failure must not interrupt active uploads.
@@ -364,3 +369,26 @@ class UploadQueue extends ChangeNotifier {
     unawaited(_persist());
   }
 }
+
+List<dynamic> _decodePersistedQueue(String raw) {
+  final decoded = jsonDecode(raw);
+  if (decoded is List<dynamic>) {
+    return decoded;
+  }
+  if (decoded is Map<String, dynamic>) {
+    final version = (decoded['version'] as num?)?.toInt() ?? 1;
+    if (version != _queueSchemaVersion) {
+      throw FormatException('Unsupported upload queue schema: $version');
+    }
+    final items = decoded['items'];
+    if (items is List<dynamic>) {
+      return items;
+    }
+  }
+  throw const FormatException('Invalid upload queue payload');
+}
+
+String _encodePersistedQueue(Iterable<UploadItem> items) => jsonEncode({
+      'version': _queueSchemaVersion,
+      'items': items.map((item) => item.toJson()).toList(),
+    });

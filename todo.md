@@ -128,8 +128,9 @@ This list tracks the remaining work before goDrive is ready to publish as an ope
   - Reduce drift between backend handlers, web API client, Flutter API client, Kotlin service, and Swift uploader.
   - [ ] Generate or validate endpoint-level request/response wrappers.
 - [ ] Version and isolate the mobile upload queue schema.
-  - Avoid manual JSON shape duplication across Dart, Kotlin, and Swift.
-  - Add migration handling for queued items from older app versions.
+  - [x] Add a versioned queue payload wrapper shared by Dart, Kotlin, and Swift.
+  - [x] Add migration handling for queued items from older app versions.
+  - [ ] Reduce remaining per-field JSON update duplication across Dart, Kotlin, and Swift.
 - [ ] Migrate Android project/plugins to Flutter built-in Kotlin DSL when dependencies support it.
   - Current Flutter builds auto-pin `android.builtInKotlin=false` and warn that the legacy Kotlin Gradle plugin path will fail in a future Flutter version.
 - [x] Code-split heavy web features.

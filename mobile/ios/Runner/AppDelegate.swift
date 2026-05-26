@@ -67,6 +67,7 @@ private final class IOSBackgroundUploader: NSObject, URLSessionDelegate, URLSess
   static let shared = IOSBackgroundUploader()
 
   private let queueKey = "flutter.godrive_upload_queue"
+  private let queueSchemaVersion = 1
   private let taskKey = "godrive_ios_background_tasks"
   private let sessionIdentifier = "eu.mljr.godrive.background_uploads"
   private let staleTaskGraceSeconds: TimeInterval = 120
@@ -375,9 +376,7 @@ private final class IOSBackgroundUploader: NSObject, URLSessionDelegate, URLSess
     tusUrl: String?,
     progress: Double?
   ) {
-    let defaults = UserDefaults.standard
-    let data = defaults.string(forKey: queueKey)?.data(using: .utf8) ?? Data("[]".utf8)
-    guard var array = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else { return }
+    guard var array = loadQueueItems() else { return }
     guard let index = array.firstIndex(where: { ($0["id"] as? String) == id }) else { return }
 
     array[index]["status"] = status
@@ -390,9 +389,30 @@ private final class IOSBackgroundUploader: NSObject, URLSessionDelegate, URLSess
     array[index]["final_path"] = finalPath
     array[index]["tus_url"] = tusUrl
 
-    if let encoded = try? JSONSerialization.data(withJSONObject: array),
+    saveQueueItems(array)
+  }
+
+  private func loadQueueItems() -> [[String: Any]]? {
+    let data = UserDefaults.standard.string(forKey: queueKey)?.data(using: .utf8) ?? Data("[]".utf8)
+    guard let decoded = try? JSONSerialization.jsonObject(with: data) else { return nil }
+    if let array = decoded as? [[String: Any]] {
+      return array
+    }
+    if let object = decoded as? [String: Any],
+       let items = object["items"] as? [[String: Any]] {
+      return items
+    }
+    return nil
+  }
+
+  private func saveQueueItems(_ items: [[String: Any]]) {
+    let object: [String: Any] = [
+      "version": queueSchemaVersion,
+      "items": items
+    ]
+    if let encoded = try? JSONSerialization.data(withJSONObject: object),
        let raw = String(data: encoded, encoding: .utf8) {
-      defaults.set(raw, forKey: queueKey)
+      UserDefaults.standard.set(raw, forKey: queueKey)
     }
   }
 
