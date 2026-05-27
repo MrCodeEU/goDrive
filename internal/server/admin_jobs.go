@@ -461,13 +461,7 @@ func (s *Server) scanUserTree(ctx context.Context, user store.User, root string,
 		textEntry *store.DocumentTextEntry
 	}
 
-	numWorkers := runtime.NumCPU()
-	if numWorkers > 8 {
-		numWorkers = 8
-	}
-	if numWorkers < 2 {
-		numWorkers = 2
-	}
+	numWorkers := max(runtime.NumCPU()-2, 1)
 
 	walkCh := make(chan walkItem, numWorkers*8)
 	resultCh := make(chan indexedItem, numWorkers*8)
