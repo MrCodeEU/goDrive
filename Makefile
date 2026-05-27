@@ -34,7 +34,8 @@ IOS_IPA        := /tmp/godrive-ios/godrive.ipa
         mobile-install mobile-test mobile-build-android mobile-build-android-release \
         emulator-start emulator-wait mobile-run mobile-dev \
         xtool-setup xtool-auth ios-push ios-deploy ios-refresh ios-devices \
-        install-hooks
+        install-hooks \
+        perf-seed perf-test perf-clean
 
 GO_PACKAGES := ./...
 GO_FILES := $(shell find cmd internal -name '*.go' -type f)
@@ -124,6 +125,20 @@ web-test:
 
 web-e2e:
 	npm run test:e2e --prefix web
+
+# ─── Performance tests ────────────────────────────────────────────────────
+# Seed 400k test files (100k images + 300k text) into var/perf-data.
+perf-seed:
+	python3 scripts/perf-seed.py
+
+# Run full 400k-file performance smoke test (build + seed + benchmark).
+# Set SKIP_SEED=1 to reuse existing data. Set SKIP_WARMUP=1 to skip thumbnails.
+perf-test:
+	bash scripts/perf-test.sh
+
+# Remove generated performance test data.
+perf-clean:
+	rm -rf var/perf-data
 
 mobile-install:
 	cd mobile && $(FLUTTER) pub get
