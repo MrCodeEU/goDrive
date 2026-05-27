@@ -3,6 +3,7 @@ WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
 COPY web/ ./
+COPY assets/ ../assets/
 COPY internal/server/static/ ../internal/server/static/
 RUN npm run build
 

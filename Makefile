@@ -35,7 +35,8 @@ IOS_IPA        := /tmp/godrive-ios/godrive.ipa
         emulator-start emulator-wait mobile-run mobile-dev \
         xtool-setup xtool-auth ios-push ios-deploy ios-refresh ios-devices \
         install-hooks \
-        perf-seed perf-test perf-clean
+        perf-seed perf-test perf-clean \
+        docker-preview-check
 
 GO_PACKAGES := ./...
 GO_FILES := $(shell find cmd internal -name '*.go' -type f)
@@ -135,6 +136,11 @@ perf-seed:
 # Set SKIP_SEED=1 to reuse existing data. Set SKIP_WARMUP=1 to skip thumbnails.
 perf-test:
 	bash scripts/perf-test.sh
+
+# Build production Docker image and verify all preview tools pass functional checks.
+# Pass --no-build to skip the docker build step and reuse an existing image.
+docker-preview-check:
+	bash scripts/docker-preview-check.sh
 
 # Remove generated performance test data.
 perf-clean:
