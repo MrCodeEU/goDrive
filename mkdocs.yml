@@ -86,6 +86,8 @@ nav:
     - Mobile Apps: features/mobile.md
     - Previews & Thumbnails: features/previews.md
     - Webhooks: features/webhooks.md
+    - WebDAV: features/webdav.md
+    - CLI: features/cli.md
   - Architecture:
     - Overview: architecture.md
     - API Reference: api-contract.md
