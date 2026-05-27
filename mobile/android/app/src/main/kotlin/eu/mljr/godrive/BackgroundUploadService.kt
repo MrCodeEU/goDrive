@@ -241,17 +241,16 @@ class BackgroundUploadService : Service() {
         progress: Double? = null,
     ) {
         val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
-        val key = "flutter.godrive_upload_queue"
-        val array = loadQueueItems(prefs.getString(key, "[]"))
+        val array = loadQueueItems(prefs.getString(QUEUE_KEY, "[]"))
         for (i in 0 until array.length()) {
             val item = array.optJSONObject(i) ?: continue
-            if (item.optString("id") != id) continue
-            item.put("status", status)
-            item.put("progress", progress ?: if (status == "done") 1.0 else item.optDouble("progress", 0.0))
-            if (error == null) item.remove("error") else item.put("error", error)
-            if (finalPath == null) item.remove("final_path") else item.put("final_path", finalPath)
-            if (tusUrl == null) item.remove("tus_url") else item.put("tus_url", tusUrl)
-            prefs.edit().putString(key, encodeQueueItems(array)).apply()
+            if (item.optString(QF_ID) != id) continue
+            item.put(QF_STATUS, status)
+            item.put(QF_PROGRESS, progress ?: if (status == "done") 1.0 else item.optDouble(QF_PROGRESS, 0.0))
+            if (error == null) item.remove(QF_ERROR) else item.put(QF_ERROR, error)
+            if (finalPath == null) item.remove(QF_FINAL_PATH) else item.put(QF_FINAL_PATH, finalPath)
+            if (tusUrl == null) item.remove(QF_TUS_URL) else item.put(QF_TUS_URL, tusUrl)
+            prefs.edit().putString(QUEUE_KEY, encodeQueueItems(array)).apply()
             return
         }
     }
@@ -260,15 +259,15 @@ class BackgroundUploadService : Service() {
         val value = JSONTokener(raw ?: "[]").nextValue()
         return when (value) {
             is JSONArray -> value
-            is JSONObject -> value.optJSONArray("items") ?: JSONArray()
+            is JSONObject -> value.optJSONArray(QF_ENV_ITEMS) ?: JSONArray()
             else -> JSONArray()
         }
     }
 
     private fun encodeQueueItems(items: JSONArray): String =
         JSONObject()
-            .put("version", QUEUE_SCHEMA_VERSION)
-            .put("items", items)
+            .put(QF_ENV_VERSION, QUEUE_SCHEMA_VERSION)
+            .put(QF_ENV_ITEMS, items)
             .toString()
 
     private fun HttpURLConnection.readError(fallback: String): String {
@@ -320,7 +319,18 @@ class BackgroundUploadService : Service() {
     companion object {
         private const val CHANNEL_ID = "godrive_uploads"
         private const val DEFAULT_BUFFER_SIZE = 256 * 1024
+
+        // Queue schema — must match queue_schema.dart and AppDelegate.swift
         private const val QUEUE_SCHEMA_VERSION = 1
+        private const val QUEUE_KEY = "flutter.godrive_upload_queue"
+        private const val QF_ID = "id"
+        private const val QF_STATUS = "status"
+        private const val QF_PROGRESS = "progress"
+        private const val QF_ERROR = "error"
+        private const val QF_FINAL_PATH = "final_path"
+        private const val QF_TUS_URL = "tus_url"
+        private const val QF_ENV_VERSION = "version"
+        private const val QF_ENV_ITEMS = "items"
 
         private val activeIds: MutableSet<String> = Collections.synchronizedSet(mutableSetOf())
 

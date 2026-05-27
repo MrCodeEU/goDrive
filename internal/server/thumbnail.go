@@ -281,7 +281,9 @@ func supportsThumbnail(kind string) bool {
 
 func generateImageThumbnail(ctx context.Context, source string, size int, target string) error {
 	// vipsthumbnail: best quality, auto-applies EXIF rotation.
-	vipsErr := runCommand(ctx, "vipsthumbnail", source, "--size", fmt.Sprintf("%dx%d", size, size), "-o", target+"[Q=90]")
+	// --vips-concurrency=1: goDrive parallelizes at the process level; disabling vips
+	// internal threading prevents OOM when many warmup workers run simultaneously.
+	vipsErr := runCommand(ctx, "vipsthumbnail", "--vips-concurrency=1", source, "--size", fmt.Sprintf("%dx%d", size, size), "-o", target+"[Q=90]")
 	if vipsErr == nil {
 		return nil
 	}

@@ -649,9 +649,7 @@ class _JobCard extends StatelessWidget {
             LinearProgressIndicator(value: progress),
             const SizedBox(height: 4),
             Text(
-              job.totalKnown
-                  ? '${job.done} / ${job.total}'
-                  : '${job.done} indexed',
+              _jobCountEta(job),
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
@@ -680,6 +678,32 @@ class _JobCard extends StatelessWidget {
       ),
     );
   }
+}
+
+String _jobCountEta(AdminJob job) {
+  final count = job.totalKnown
+      ? '${job.done} / ${job.total} entries'
+      : '${job.done} entries';
+  if (!job.totalKnown || job.done <= 0 || job.total <= job.done) return count;
+  final elapsedMs =
+      DateTime.now().difference(job.startedAt).inMilliseconds;
+  if (elapsedMs < 1000) return count;
+  final rate = job.done / (elapsedMs / 1000);
+  final remainSecs = ((job.total - job.done) / rate).round();
+  if (remainSecs <= 0) return count;
+  String eta;
+  if (remainSecs < 60) {
+    eta = '~${remainSecs}s';
+  } else {
+    final m = remainSecs ~/ 60, s = remainSecs % 60;
+    if (m < 60) {
+      eta = s > 0 ? '~${m}m ${s}s' : '~${m}m';
+    } else {
+      final h = m ~/ 60, rm = m % 60;
+      eta = rm > 0 ? '~${h}h ${rm}m' : '~${h}h';
+    }
+  }
+  return '$count · ETA $eta';
 }
 
 class _APIKeyTile extends StatelessWidget {

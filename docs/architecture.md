@@ -102,6 +102,26 @@ Important boundaries:
 
 goDrive is intended for small private self-hosted deployments. Treat public multi-tenant exposure as out of scope unless the architecture is revisited.
 
+## Performance
+
+Baseline measured on a 400k-file (830k index entry) dataset using `make perf-test`:
+
+| Benchmark | Result |
+|---|---|
+| List `/` first page (limit=200) | 14 ms |
+| List `/` mobile (limit=50) | 11 ms |
+| List `/images/00` (subdir, 1000 files) | 17 ms |
+| Search `alpha` (FTS5 trigram) | 48 ms |
+| Search `photo` (FTS5 trigram) | 45 ms |
+| Search `img_0000001` (exact) | 12 ms |
+| Full reindex ~830k entries | 77 s |
+
+Key design decisions behind these numbers:
+
+- Directory listing joins against `document_snippets` (B-tree, `PRIMARY KEY (user_id, path)`) instead of `document_fts` (FTS5 virtual table). FTS5 with `UNINDEXED` columns does a full scan per row; the plain table gives O(log n) lookup.
+- Reindex uses `max(numCPU-2, 1)` workers, merged transactions (batch 2000), and defers FTS5 and document staging to the finalization phase so per-file overhead stays low.
+- `vipsthumbnail` is invoked with `--vips-concurrency=1` to prevent per-process thread pools from multiplying RAM usage under parallel preview workers.
+
 ## Local Quality Gates
 
 Use local checks before hosted CI:

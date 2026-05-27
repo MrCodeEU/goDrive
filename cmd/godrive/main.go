@@ -272,6 +272,31 @@ func cliReindex(ctx context.Context, args []string, cfg config.Config, log *slog
 	}
 	defer func() { _ = st.Close() }()
 
+	progressDone := make(chan struct{})
+	go func() {
+		defer close(progressDone)
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				snap := srv.JobSnapshot()
+				if snap == nil || snap.Status != "running" {
+					return
+				}
+				if snap.TotalKnown && snap.Total > 0 {
+					pct := snap.Done * 100 / snap.Total
+					eta := etaString(snap.StartedAt, snap.Done, snap.Total)
+					fmt.Fprintf(os.Stderr, "\r[reindex] %d/%d entries (%d%%)%s — %s  ", snap.Done, snap.Total, pct, eta, snap.Message)
+				} else {
+					fmt.Fprintf(os.Stderr, "\r[reindex] %d entries — %s  ", snap.Done, snap.Message)
+				}
+			}
+		}
+	}()
+
 	var job *server.AdminJob
 	if *logicalPath != "" {
 		job, err = srv.RunReindexPath(ctx, *username, *logicalPath)
@@ -280,9 +305,11 @@ func cliReindex(ctx context.Context, args []string, cfg config.Config, log *slog
 	} else {
 		job, err = srv.RunReindex(ctx)
 	}
+	<-progressDone
 	if err != nil {
 		return err
 	}
+	fmt.Fprintln(os.Stderr, "")
 	printJob(job)
 	return nil
 }
@@ -492,6 +519,36 @@ func printJob(job *server.AdminJob) {
 		fmt.Printf(", scope=%s", job.Scope)
 	}
 	fmt.Printf(", message=%s\n", job.Message)
+}
+
+func etaString(startedAt time.Time, done, total int64) string {
+	if done <= 0 || total <= done {
+		return ""
+	}
+	elapsedSec := time.Since(startedAt).Seconds()
+	if elapsedSec < 1 {
+		return ""
+	}
+	rate := float64(done) / elapsedSec
+	remainSecs := int64((float64(total - done)) / rate)
+	if remainSecs <= 0 {
+		return ""
+	}
+	if remainSecs < 60 {
+		return fmt.Sprintf(" ETA ~%ds", remainSecs)
+	}
+	m, s := remainSecs/60, remainSecs%60
+	if m < 60 {
+		if s > 0 {
+			return fmt.Sprintf(" ETA ~%dm%ds", m, s)
+		}
+		return fmt.Sprintf(" ETA ~%dm", m)
+	}
+	h, rm := m/60, m%60
+	if rm > 0 {
+		return fmt.Sprintf(" ETA ~%dh%dm", h, rm)
+	}
+	return fmt.Sprintf(" ETA ~%dh", h)
 }
 
 func directoryStats(root string) (filesCount int64, bytes int64, err error) {

@@ -189,7 +189,7 @@ time_cli "godrive status"                       status
 # ---------------------------------------------------------------------------
 # Full reindex via API so progress is visible while running.
 # ---------------------------------------------------------------------------
-log "Starting full reindex via API (this may take several minutes for 400k files)..."
+log "Starting full reindex via API (this may take several minutes for ~830k entries)..."
 REINDEX_START=$(date +%s%3N)
 curl -sf -X POST "$BASE_URL/api/admin/jobs/reindex" \
     -H "$AUTH" -H "Content-Type: application/json" -d '{}' >/dev/null
@@ -204,9 +204,16 @@ while true; do
 
     if [[ "$KNOWN" == "True" && "$TOTAL" -gt 0 ]]; then
         PCT=$(( DONE * 100 / TOTAL ))
-        printf "\r[perf] reindex: %d / %d files (%d%%) — %s  " "$DONE" "$TOTAL" "$PCT" "$STATUS"
+        NOW=$(date +%s%3N)
+        ELAPSED_MS=$(( NOW - REINDEX_START ))
+        ETA_STR=""
+        if [[ "$DONE" -gt 0 && "$ELAPSED_MS" -gt 1000 ]]; then
+            REMAIN=$(python3 -c "import sys; d,t,e=int(sys.argv[1]),int(sys.argv[2]),int(sys.argv[3]); r=round((t-d)/(d/(e/1000))); s=r%60; m=r//60; h=m//60; rm=m%60; print(f'~{h}h{rm}m' if h>0 else (f'~{m}m{s}s' if m>0 and s>0 else (f'~{m}m' if m>0 else f'~{s}s')))" "$DONE" "$TOTAL" "$ELAPSED_MS" 2>/dev/null || echo "")
+            [[ -n "$REMAIN" ]] && ETA_STR=" ETA $REMAIN"
+        fi
+        printf "\r[perf] reindex: %d / %d entries (%d%%)%s — %s  " "$DONE" "$TOTAL" "$PCT" "$ETA_STR" "$MSG"
     else
-        printf "\r[perf] reindex: %d files indexed — %s  " "$DONE" "$STATUS"
+        printf "\r[perf] reindex: %d entries — %s  " "$DONE" "$MSG"
     fi
 
     if [[ "$STATUS" == "completed" || "$STATUS" == "failed" || "$STATUS" == "canceled" ]]; then
@@ -219,10 +226,10 @@ done
 REINDEX_END=$(date +%s%3N)
 REINDEX_ELAPSED=$(( REINDEX_END - REINDEX_START ))
 if [[ "$STATUS" == "completed" ]]; then
-    RESULTS+=("$(printf "%-45s  %5d ms" "reindex (full, 400k files)" "$REINDEX_ELAPSED")")
+    RESULTS+=("$(printf "%-45s  %5d ms" "reindex (full, ~830k entries)" "$REINDEX_ELAPSED")")
     log "reindex completed → ${REINDEX_ELAPSED}ms"
 else
-    RESULTS+=("$(printf "%-45s  FAIL (%s)" "reindex (full, 400k files)" "$STATUS")")
+    RESULTS+=("$(printf "%-45s  FAIL (%s)" "reindex (full, ~830k entries)" "$STATUS")")
     log "reindex ended with status: $STATUS — $MSG"
 fi
 
@@ -246,7 +253,14 @@ if [[ "${SKIP_WARMUP:-0}" != "1" ]]; then
 
         if [[ "$KNOWN" == "True" && "$TOTAL" -gt 0 ]]; then
             PCT=$(( DONE * 100 / TOTAL ))
-            printf "\r[perf] preview-warmup: %d / %d (%d%%) — %s  " "$DONE" "$TOTAL" "$PCT" "$STATUS"
+            NOW=$(date +%s%3N)
+            ELAPSED_MS=$(( NOW - WARMUP_START ))
+            ETA_STR=""
+            if [[ "$DONE" -gt 0 && "$ELAPSED_MS" -gt 1000 ]]; then
+                REMAIN=$(python3 -c "import sys; d,t,e=int(sys.argv[1]),int(sys.argv[2]),int(sys.argv[3]); r=round((t-d)/(d/(e/1000))); s=r%60; m=r//60; h=m//60; rm=m%60; print(f'~{h}h{rm}m' if h>0 else (f'~{m}m{s}s' if m>0 and s>0 else (f'~{m}m' if m>0 else f'~{s}s')))" "$DONE" "$TOTAL" "$ELAPSED_MS" 2>/dev/null || echo "")
+                [[ -n "$REMAIN" ]] && ETA_STR=" ETA $REMAIN"
+            fi
+            printf "\r[perf] preview-warmup: %d / %d (%d%%)%s — %s  " "$DONE" "$TOTAL" "$PCT" "$ETA_STR" "$STATUS"
         else
             printf "\r[perf] preview-warmup: %d done — %s  " "$DONE" "$STATUS"
         fi

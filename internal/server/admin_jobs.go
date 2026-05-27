@@ -289,12 +289,27 @@ func (s *Server) runReindexJob(ctx context.Context, jobID string) {
 	s.runReindexUsers(ctx, jobID, users)
 }
 
+func (s *Server) JobSnapshot() *AdminJob {
+	return s.jobs.Snapshot()
+}
+
 func (s *Server) runReindexUsers(ctx context.Context, jobID string, users []store.User) {
 	scanID := jobID + "-" + time.Now().UTC().Format("20060102T150405Z")
-	s.jobs.update(jobID, func(job *AdminJob) {
-		job.TotalKnown = false
-		job.Message = "scanning user roots"
-	})
+
+	// Use previous index count as a scanning estimate so the UI shows a progress bar.
+	if indexStats, statsErr := s.store.IndexStats(ctx); statsErr == nil {
+		estimate := indexStats.IndexedFiles + indexStats.IndexedDirectories
+		s.jobs.update(jobID, func(job *AdminJob) {
+			job.TotalKnown = estimate > 0
+			job.Total = estimate
+			job.Message = "scanning"
+		})
+	} else {
+		s.jobs.update(jobID, func(job *AdminJob) {
+			job.TotalKnown = false
+			job.Message = "scanning"
+		})
+	}
 
 	if err := s.store.TruncateDocumentStaging(ctx); err != nil {
 		s.finishJob(jobID, "failed", err.Error())
@@ -343,7 +358,7 @@ func (s *Server) runReindexUsers(ctx context.Context, jobID string, users []stor
 		return
 	}
 	s.jobs.update(jobID, func(job *AdminJob) {
-		job.Message = "rebuilding search index"
+		job.Message = "applying document search index"
 	})
 	if err := s.store.ApplyDocumentStaging(ctx); err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -353,6 +368,9 @@ func (s *Server) runReindexUsers(ctx context.Context, jobID string, users []stor
 		s.finishJob(jobID, "failed", err.Error())
 		return
 	}
+	s.jobs.update(jobID, func(job *AdminJob) {
+		job.Message = "rebuilding filename search index"
+	})
 	if err := s.store.RebuildFileIndexFTS(ctx); err != nil {
 		if errors.Is(err, context.Canceled) {
 			s.finishJob(jobID, "canceled", "reindex canceled")
@@ -361,6 +379,9 @@ func (s *Server) runReindexUsers(ctx context.Context, jobID string, users []stor
 		s.finishJob(jobID, "failed", err.Error())
 		return
 	}
+	s.jobs.update(jobID, func(job *AdminJob) {
+		job.Message = "finalizing"
+	})
 	_ = s.store.CheckpointWAL(ctx)
 	s.finishJob(jobID, "completed", "reindex completed")
 }
@@ -608,7 +629,7 @@ func (s *Server) scanUserTree(ctx context.Context, user store.User, root string,
 		changedBatch = changedBatch[:0]
 		s.jobs.update(jobID, func(job *AdminJob) {
 			job.Done += int64(count)
-			job.Message = "indexed " + user.Username + ":" + last
+			job.Message = "scanning " + user.Username + ":" + last
 		})
 		return nil
 	}
@@ -705,7 +726,7 @@ func (s *Server) scanSinglePath(ctx context.Context, user store.User, physical s
 	}
 	s.jobs.update(jobID, func(job *AdminJob) {
 		job.Done++
-		job.Message = "indexed " + user.Username + ":" + logical
+		job.Message = "scanning " + user.Username + ":" + logical
 	})
 	return nil
 }

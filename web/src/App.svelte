@@ -1510,12 +1510,26 @@
 
   function jobProgress(job: AdminJob) {
     const deleted = job.deleted ? `, ${job.deleted} deleted` : "";
-    return job.total_known ? `${job.done}/${job.total}${deleted}` : `${job.done} indexed${deleted}`;
+    return job.total_known ? `${job.done}/${job.total} entries${deleted}` : `${job.done} entries${deleted}`;
   }
 
   function progressValue(job: AdminJob) {
     if (!job.total_known || job.total === 0) return 0;
     return Math.min(100, Math.round((job.done / job.total) * 100));
+  }
+
+  function jobETA(job: AdminJob): string {
+    if (!job.total_known || job.done <= 0 || job.total <= job.done) return "";
+    const elapsedMs = Date.now() - new Date(job.started_at).getTime();
+    if (elapsedMs < 1000) return "";
+    const rate = job.done / (elapsedMs / 1000);
+    const remainSecs = Math.round((job.total - job.done) / rate);
+    if (remainSecs <= 0) return "";
+    if (remainSecs < 60) return `~${remainSecs}s`;
+    const m = Math.floor(remainSecs / 60), s = remainSecs % 60;
+    if (m < 60) return s > 0 ? `~${m}m ${s}s` : `~${m}m`;
+    const h = Math.floor(m / 60), rm = m % 60;
+    return rm > 0 ? `~${h}h ${rm}m` : `~${h}h`;
   }
 
   function uploadStatusText(item: UploadQueueItem) {
@@ -2112,7 +2126,7 @@
           {#if adminJob}
             <section class="job-panel">
               <strong>{adminJob.type}</strong>
-              <span>{adminJob.status} · {jobProgress(adminJob)} · {adminJob.failed} failed</span>
+              <span>{adminJob.status} · {jobProgress(adminJob)} · {adminJob.failed} failed{jobETA(adminJob) ? ` · ETA ${jobETA(adminJob)}` : ""}</span>
               {#if adminJob.status === "running" && adminJob.total_known}<progress value={progressValue(adminJob)} max="100"></progress>{:else if adminJob.status === "running"}<progress></progress>{/if}
               <p>{adminJob.message}</p>
             </section>

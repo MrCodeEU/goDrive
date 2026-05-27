@@ -63,11 +63,22 @@ import receive_sharing_intent
   }
 }
 
+// Queue schema — must match queue_schema.dart and BackgroundUploadService.kt
+private enum QueueSchema {
+  static let key = "flutter.godrive_upload_queue"
+  static let version = 1
+  static let envVersion = "version"
+  static let envItems = "items"
+  static let fId = "id"
+  static let fStatus = "status"
+  static let fProgress = "progress"
+  static let fError = "error"
+  static let fFinalPath = "final_path"
+  static let fTusUrl = "tus_url"
+}
+
 private final class IOSBackgroundUploader: NSObject, URLSessionDelegate, URLSessionTaskDelegate, URLSessionDataDelegate {
   static let shared = IOSBackgroundUploader()
-
-  private let queueKey = "flutter.godrive_upload_queue"
-  private let queueSchemaVersion = 1
   private let taskKey = "godrive_ios_background_tasks"
   private let sessionIdentifier = "eu.mljr.godrive.background_uploads"
   private let staleTaskGraceSeconds: TimeInterval = 120
@@ -377,29 +388,29 @@ private final class IOSBackgroundUploader: NSObject, URLSessionDelegate, URLSess
     progress: Double?
   ) {
     guard var array = loadQueueItems() else { return }
-    guard let index = array.firstIndex(where: { ($0["id"] as? String) == id }) else { return }
+    guard let index = array.firstIndex(where: { ($0[QueueSchema.fId] as? String) == id }) else { return }
 
-    array[index]["status"] = status
+    array[index][QueueSchema.fStatus] = status
     if let progress {
-      array[index]["progress"] = progress
+      array[index][QueueSchema.fProgress] = progress
     } else if status == "done" {
-      array[index]["progress"] = 1.0
+      array[index][QueueSchema.fProgress] = 1.0
     }
-    array[index]["error"] = error
-    array[index]["final_path"] = finalPath
-    array[index]["tus_url"] = tusUrl
+    array[index][QueueSchema.fError] = error
+    array[index][QueueSchema.fFinalPath] = finalPath
+    array[index][QueueSchema.fTusUrl] = tusUrl
 
     saveQueueItems(array)
   }
 
   private func loadQueueItems() -> [[String: Any]]? {
-    let data = UserDefaults.standard.string(forKey: queueKey)?.data(using: .utf8) ?? Data("[]".utf8)
+    let data = UserDefaults.standard.string(forKey: QueueSchema.key)?.data(using: .utf8) ?? Data("[]".utf8)
     guard let decoded = try? JSONSerialization.jsonObject(with: data) else { return nil }
     if let array = decoded as? [[String: Any]] {
       return array
     }
     if let object = decoded as? [String: Any],
-       let items = object["items"] as? [[String: Any]] {
+       let items = object[QueueSchema.envItems] as? [[String: Any]] {
       return items
     }
     return nil
@@ -407,12 +418,12 @@ private final class IOSBackgroundUploader: NSObject, URLSessionDelegate, URLSess
 
   private func saveQueueItems(_ items: [[String: Any]]) {
     let object: [String: Any] = [
-      "version": queueSchemaVersion,
-      "items": items
+      QueueSchema.envVersion: QueueSchema.version,
+      QueueSchema.envItems: items
     ]
     if let encoded = try? JSONSerialization.data(withJSONObject: object),
        let raw = String(data: encoded, encoding: .utf8) {
-      UserDefaults.standard.set(raw, forKey: queueKey)
+      UserDefaults.standard.set(raw, forKey: QueueSchema.key)
     }
   }
 

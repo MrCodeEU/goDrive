@@ -6,10 +6,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import '../api/background_uploader.dart';
 import '../api/client.dart';
+import '../api/queue_schema.dart';
 import '../api/tus.dart';
-
-const _prefKey = 'godrive_upload_queue';
-const _queueSchemaVersion = 1;
 const _maxConcurrent = 3;
 
 enum UploadStatus { queued, uploading, background, done, error, interrupted }
@@ -44,51 +42,51 @@ class UploadItem {
   // JSON for persistence. The stored file path can be reopened only while the
   // platform keeps that picker path valid.
   Map<String, dynamic> toJson() => {
-        'schema_version': _queueSchemaVersion,
-        'id': id,
-        'file_path': filePath ?? file?.path,
-        'name': name,
-        'file_size': fileSize,
-        'target_path': targetPath,
-        'status': switch (status) {
+        qfSchemaVersion: queueSchemaVersion,
+        qfId: id,
+        qfFilePath: filePath ?? file?.path,
+        qfName: name,
+        qfFileSize: fileSize,
+        qfTargetPath: targetPath,
+        qfStatus: switch (status) {
           UploadStatus.done => 'done',
           UploadStatus.error => 'error',
           UploadStatus.interrupted => 'interrupted',
           UploadStatus.background => 'background',
           _ => 'interrupted',
         },
-        'progress': progress,
-        'final_path': finalPath,
-        'tus_url': tusUrl,
-        'error': error,
+        qfProgress: progress,
+        qfFinalPath: finalPath,
+        qfTusUrl: tusUrl,
+        qfError: error,
       };
 
   factory UploadItem.fromJson(Map<String, dynamic> j) {
-    final version = (j['schema_version'] as num?)?.toInt() ?? 1;
-    if (version != _queueSchemaVersion) {
+    final version = (j[qfSchemaVersion] as num?)?.toInt() ?? 1;
+    if (version != queueSchemaVersion) {
       throw FormatException('Unsupported upload queue item schema: $version');
     }
-    final filePath = j['file_path'] as String?;
+    final filePath = j[qfFilePath] as String?;
     final file =
         filePath != null && File(filePath).existsSync() ? File(filePath) : null;
-    final status = switch (j['status'] as String?) {
+    final status = switch (j[qfStatus] as String?) {
       'done' => UploadStatus.done,
       'error' => UploadStatus.error,
       'background' => UploadStatus.background,
       _ => UploadStatus.interrupted,
     };
     return UploadItem(
-      id: j['id'] as String,
+      id: j[qfId] as String,
       file: file,
       filePath: filePath,
-      name: j['name'] as String,
-      fileSize: j['file_size'] as int,
-      targetPath: j['target_path'] as String,
+      name: j[qfName] as String,
+      fileSize: j[qfFileSize] as int,
+      targetPath: j[qfTargetPath] as String,
       status: status,
-      finalPath: j['final_path'] as String?,
-      tusUrl: j['tus_url'] as String?,
-      error: j['error'] as String?,
-      progress: (j['progress'] as num?)?.toDouble() ??
+      finalPath: j[qfFinalPath] as String?,
+      tusUrl: j[qfTusUrl] as String?,
+      error: j[qfError] as String?,
+      progress: (j[qfProgress] as num?)?.toDouble() ??
           (status == UploadStatus.done ? 1.0 : 0),
     );
   }
@@ -125,7 +123,7 @@ class UploadQueue extends ChangeNotifier {
   Future<void> refreshPersisted() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_prefKey);
+      final raw = prefs.getString(queuePrefKey);
       if (raw != null) {
         try {
           final list = _decodePersistedQueue(raw);
@@ -163,9 +161,9 @@ class UploadQueue extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final persisted = _items.where((i) => i.status != UploadStatus.queued);
       if (persisted.isEmpty) {
-        await prefs.remove(_prefKey);
+        await prefs.remove(queuePrefKey);
       } else {
-        await prefs.setString(_prefKey, _encodePersistedQueue(persisted));
+        await prefs.setString(queuePrefKey, _encodePersistedQueue(persisted));
       }
     } catch (_) {
       // Persistence failure must not interrupt active uploads.
@@ -376,11 +374,11 @@ List<dynamic> _decodePersistedQueue(String raw) {
     return decoded;
   }
   if (decoded is Map<String, dynamic>) {
-    final version = (decoded['version'] as num?)?.toInt() ?? 1;
-    if (version != _queueSchemaVersion) {
+    final version = (decoded[qfEnvVersion] as num?)?.toInt() ?? 1;
+    if (version != queueSchemaVersion) {
       throw FormatException('Unsupported upload queue schema: $version');
     }
-    final items = decoded['items'];
+    final items = decoded[qfEnvItems];
     if (items is List<dynamic>) {
       return items;
     }
@@ -389,6 +387,6 @@ List<dynamic> _decodePersistedQueue(String raw) {
 }
 
 String _encodePersistedQueue(Iterable<UploadItem> items) => jsonEncode({
-      'version': _queueSchemaVersion,
-      'items': items.map((item) => item.toJson()).toList(),
+      qfEnvVersion: queueSchemaVersion,
+      qfEnvItems: items.map((item) => item.toJson()).toList(),
     });

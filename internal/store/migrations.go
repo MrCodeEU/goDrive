@@ -117,7 +117,10 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if err := s.ensureDocumentSearch(ctx); err != nil {
 		return err
 	}
-	return s.ensureDocumentStaging(ctx)
+	if err := s.ensureDocumentStaging(ctx); err != nil {
+		return err
+	}
+	return s.ensureDocumentSnippets(ctx)
 }
 
 func (s *Store) ensureDocumentStaging(ctx context.Context) error {
@@ -163,42 +166,26 @@ func (s *Store) ensureColumn(ctx context.Context, table, column, definition stri
 }
 
 func (s *Store) ensureFileIndexSearch(ctx context.Context) error {
-	if _, err := s.db.ExecContext(ctx, `
+	// Only create the table — population is done by RebuildFileIndexFTS during reindex.
+	_, err := s.db.ExecContext(ctx, `
 		CREATE VIRTUAL TABLE IF NOT EXISTS file_index_fts
 		USING fts5(user_id UNINDEXED, path, name, tokenize = 'trigram')
+	`)
+	return err
+}
+
+func (s *Store) ensureDocumentSnippets(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS document_snippets (
+			user_id INTEGER NOT NULL,
+			path    TEXT NOT NULL,
+			snippet TEXT NOT NULL,
+			PRIMARY KEY (user_id, path)
+		)
 	`); err != nil {
 		return err
 	}
-
-	var indexedRows int64
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM file_index_fts`).Scan(&indexedRows); err != nil {
-		return err
-	}
-	var sourceRows int64
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM file_index`).Scan(&sourceRows); err != nil {
-		return err
-	}
-	if indexedRows == sourceRows {
-		return nil
-	}
-
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	if _, err := tx.ExecContext(ctx, `DELETE FROM file_index_fts`); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO file_index_fts(rowid, user_id, path, name)
-		SELECT rowid, user_id, path, name
-		FROM file_index
-	`); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return nil
 }
 
 func (s *Store) ensureDocumentSearch(ctx context.Context) error {

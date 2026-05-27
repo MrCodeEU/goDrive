@@ -133,16 +133,28 @@ func (s *Store) UpsertDocumentTextEntries(ctx context.Context, entries []Documen
 		return err
 	}
 	defer func() { _ = deleteStmt.Close() }()
-	insertStmt, err := tx.PrepareContext(ctx, `INSERT INTO document_fts(user_id, path, content) VALUES (?, ?, ?)`)
+	insertFTSStmt, err := tx.PrepareContext(ctx, `INSERT INTO document_fts(user_id, path, content) VALUES (?, ?, ?)`)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = insertStmt.Close() }()
+	defer func() { _ = insertFTSStmt.Close() }()
+	upsertSnippetStmt, err := tx.PrepareContext(ctx, `INSERT OR REPLACE INTO document_snippets(user_id, path, snippet) VALUES (?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = upsertSnippetStmt.Close() }()
 	for _, entry := range entries {
 		if _, err := deleteStmt.ExecContext(ctx, entry.UserID, entry.Path); err != nil {
 			return err
 		}
-		if _, err := insertStmt.ExecContext(ctx, entry.UserID, entry.Path, entry.Content); err != nil {
+		if _, err := insertFTSStmt.ExecContext(ctx, entry.UserID, entry.Path, entry.Content); err != nil {
+			return err
+		}
+		snippet := entry.Content
+		if len(snippet) > 500 {
+			snippet = snippet[:500]
+		}
+		if _, err := upsertSnippetStmt.ExecContext(ctx, entry.UserID, entry.Path, snippet); err != nil {
 			return err
 		}
 	}
@@ -306,6 +318,23 @@ func (s *Store) ApplyDocumentStaging(ctx context.Context) error {
 	`); err != nil {
 		return err
 	}
+	// Sync snippet table (first 500 chars; O(log n) lookup for directory listings).
+	if _, err := tx.ExecContext(ctx, `
+		INSERT OR REPLACE INTO document_snippets(user_id, path, snippet)
+		SELECT user_id, path, SUBSTR(content, 1, 500) FROM document_staging
+	`); err != nil {
+		return err
+	}
+	// Remove snippets for files deleted from file_index.
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM document_snippets
+		WHERE NOT EXISTS (
+			SELECT 1 FROM file_index fi
+			WHERE fi.user_id = document_snippets.user_id AND fi.path = document_snippets.path
+		)
+	`); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -336,8 +365,18 @@ func (s *Store) RebuildFileIndexFTS(ctx context.Context) error {
 }
 
 func (s *Store) DeleteDocumentText(ctx context.Context, userID int64, logical string) error {
-	_, err := s.db.ExecContext(ctx, deleteDocumentTextSQL, userID, logical)
-	return err
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, deleteDocumentTextSQL, userID, logical); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM document_snippets WHERE user_id = ? AND path = ?`, userID, logical); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) BackfillFileIndexParentPaths(ctx context.Context) error {
@@ -437,9 +476,9 @@ func (s *Store) ListFileIndexFolder(ctx context.Context, userID int64, parentPat
 
 	query := `
 		SELECT fi.user_id, fi.path, fi.parent_path, fi.name, fi.type, fi.size, fi.modified_at, fi.mime_type, fi.preview_kind, fi.last_seen_scan, fi.updated_at,
-		       CASE WHEN fi.preview_kind IN ('text', 'markdown') THEN COALESCE(SUBSTR(dt.content, 1, 300), '') ELSE '' END
+		       CASE WHEN fi.preview_kind IN ('text', 'markdown') THEN COALESCE(ds.snippet, '') ELSE '' END
 		FROM file_index fi
-		LEFT JOIN document_fts dt ON fi.user_id = dt.user_id AND fi.path = dt.path
+		LEFT JOIN document_snippets ds ON fi.user_id = ds.user_id AND fi.path = ds.path
 		WHERE ` + where + `
 		ORDER BY fi.type, fi.name COLLATE NOCASE, fi.path COLLATE NOCASE
 	`
@@ -542,6 +581,17 @@ func (s *Store) DeleteFileIndexEntriesNotSeen(ctx context.Context, userID int64,
 	`, userID, userID, scanID); err != nil {
 		return 0, err
 	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM document_snippets
+		WHERE user_id = ?
+			AND path IN (
+				SELECT path
+				FROM file_index
+				WHERE user_id = ? AND last_seen_scan <> ?
+			)
+	`, userID, userID, scanID); err != nil {
+		return 0, err
+	}
 
 	result, err := tx.ExecContext(ctx, `
 		DELETE FROM file_index
@@ -608,6 +658,17 @@ func (s *Store) DeleteFileIndexEntriesNotSeenUnder(ctx context.Context, userID i
 	`, append([]any{userID}, args...)...); err != nil {
 		return 0, err
 	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM document_snippets
+		WHERE user_id = ?
+			AND path IN (
+				SELECT path
+				FROM file_index
+				WHERE `+where+`
+			)
+	`, append([]any{userID}, args...)...); err != nil {
+		return 0, err
+	}
 
 	result, err := tx.ExecContext(ctx, `
 		DELETE FROM file_index
@@ -641,6 +702,12 @@ func (s *Store) DeleteFileIndexPath(ctx context.Context, userID int64, logical s
 	}
 	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM document_fts
+		WHERE user_id = ? AND (path = ? OR path LIKE ? ESCAPE '\')
+	`, userID, logical, likePattern); err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM document_snippets
 		WHERE user_id = ? AND (path = ? OR path LIKE ? ESCAPE '\')
 	`, userID, logical, likePattern); err != nil {
 		return 0, err
