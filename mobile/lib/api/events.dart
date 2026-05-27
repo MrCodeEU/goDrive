@@ -38,7 +38,7 @@ class FileEventService {
   StreamSubscription<String>? _lineSubscription;
 
   FileEventService({required this.client, http.Client? httpClient})
-      : _http = httpClient ?? http.Client();
+      : _http = httpClient ?? client.httpClient;
 
   Stream<FileEvent> get events => _events.stream;
   Stream<FileEventConnectionStatus> get status => _status.stream;

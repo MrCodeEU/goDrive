@@ -21,6 +21,8 @@ class ApiClient {
     http.Client? httpClient,
   }) : _http = httpClient ?? http.Client();
 
+  http.Client get httpClient => _http;
+
   Map<String, String> get _headers => {
         'Content-Type': 'application/json',
         'Accept': 'application/json',

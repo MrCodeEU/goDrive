@@ -49,6 +49,14 @@ class AuthState extends ChangeNotifier {
     notifyListeners();
   }
 
+  @visibleForTesting
+  void setLoggedIn(ApiClient client, User user) {
+    _client = client;
+    _user = user;
+    _loading = false;
+    notifyListeners();
+  }
+
   Future<void> logout() async {
     try {
       await _client?.logout();
