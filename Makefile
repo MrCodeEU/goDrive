@@ -138,7 +138,7 @@ perf-test:
 
 # Remove generated performance test data.
 perf-clean:
-	rm -rf var/perf-data
+	rm -rf var/perf-data var/perf-appdata
 
 mobile-install:
 	cd mobile && $(FLUTTER) pub get

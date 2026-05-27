@@ -28,7 +28,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 DATA_DIR="${PERF_DATA_DIR:-./var/perf-data}"
-APPDATA_DIR="${DATA_DIR}/.appdata"
+APPDATA_DIR="${PERF_APPDATA_DIR:-./var/perf-appdata}"
 ADDR="${PERF_ADDR:-127.0.0.1:18121}"
 ADMIN_USER="${PERF_ADMIN_USER:-perf-admin}"
 ADMIN_PASS="${PERF_ADMIN_PASS:-perf-pass-12345}"
