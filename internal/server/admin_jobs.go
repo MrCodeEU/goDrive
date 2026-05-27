@@ -47,7 +47,7 @@ type AdminJob struct {
 var errJobRunning = errors.New("admin job already running")
 
 const (
-	reindexBatchSize                 = 500
+	reindexBatchSize                 = 2000
 	previewWarmupMaxJobs             = 64
 	previewWarmupMinJobs             = 2
 	adminProgressBatchSize           = 25
@@ -337,6 +337,17 @@ func (s *Server) runReindexUsers(ctx context.Context, jobID string, users []stor
 		s.finishJob(jobID, "canceled", "reindex canceled")
 		return
 	}
+	s.jobs.update(jobID, func(job *AdminJob) {
+		job.Message = "rebuilding search index"
+	})
+	if err := s.store.RebuildFileIndexFTS(ctx); err != nil {
+		if errors.Is(err, context.Canceled) {
+			s.finishJob(jobID, "canceled", "reindex canceled")
+			return
+		}
+		s.finishJob(jobID, "failed", err.Error())
+		return
+	}
 	s.finishJob(jobID, "completed", "reindex completed")
 }
 
@@ -440,16 +451,126 @@ func (s *Server) scanUserPath(ctx context.Context, user store.User, logical stri
 }
 
 func (s *Server) scanUserTree(ctx context.Context, user store.User, root string, start string, startLogical string, scanID string, jobID string) error {
+	type walkItem struct {
+		physical string
+		logical  string
+		info     os.FileInfo
+	}
+	type indexedItem struct {
+		entry     store.FileIndexEntry
+		textEntry *store.DocumentTextEntry
+	}
+
+	numWorkers := runtime.NumCPU()
+	if numWorkers > 8 {
+		numWorkers = 8
+	}
+	if numWorkers < 2 {
+		numWorkers = 2
+	}
+
+	walkCh := make(chan walkItem, numWorkers*8)
+	resultCh := make(chan indexedItem, numWorkers*8)
+
+	// Producer: walk the directory tree and emit items into walkCh.
+	walkErrCh := make(chan error, 1)
+	go func() {
+		defer close(walkCh)
+		var walkErr error
+
+		sendItem := func(physical, logical string, info os.FileInfo) bool {
+			select {
+			case walkCh <- walkItem{physical, logical, info}:
+				return true
+			case <-ctx.Done():
+				return false
+			}
+		}
+
+		if startLogical != "" && startLogical != "/" {
+			info, err := os.Lstat(start)
+			if err != nil {
+				walkErrCh <- err
+				return
+			}
+			if !sendItem(start, startLogical, info) {
+				return
+			}
+		}
+
+		walkErr = filepath.WalkDir(start, func(physical string, d os.DirEntry, err error) error {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if err != nil {
+				if errors.Is(err, fs.ErrNotExist) {
+					return nil
+				}
+				return err
+			}
+			if physical == root || (startLogical != "" && physical == start) {
+				return nil
+			}
+			info, err := d.Info()
+			if err != nil {
+				if errors.Is(err, fs.ErrNotExist) {
+					return nil
+				}
+				return err
+			}
+			if info.Mode()&os.ModeSymlink != 0 {
+				if d.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			rel, err := filepath.Rel(root, physical)
+			if err != nil {
+				return err
+			}
+			logical, err := files.CleanLogical("/" + filepath.ToSlash(rel))
+			if err != nil {
+				return err
+			}
+			if !sendItem(physical, logical, info) {
+				return ctx.Err()
+			}
+			return nil
+		})
+		if walkErr != nil && !errors.Is(walkErr, context.Canceled) {
+			walkErrCh <- walkErr
+		}
+	}()
+
+	// Workers: call indexEntryForPath (may read file content) in parallel.
+	var workerWg sync.WaitGroup
+	for range numWorkers {
+		workerWg.Add(1)
+		go func() {
+			defer workerWg.Done()
+			for item := range walkCh {
+				entry, textEntry := s.indexEntryForPath(user, item.physical, item.logical, item.info, scanID)
+				select {
+				case resultCh <- indexedItem{entry, textEntry}:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+	}
+	go func() {
+		workerWg.Wait()
+		close(resultCh)
+	}()
+
+	// Batch accumulator: collect results and flush to DB.
 	batch := make([]store.FileIndexEntry, 0, reindexBatchSize)
 	textBatch := make([]store.DocumentTextEntry, 0, reindexBatchSize)
 	flush := func() error {
 		if len(batch) == 0 {
 			return nil
 		}
-		if err := s.store.UpsertFileIndexEntries(ctx, batch); err != nil {
-			return err
-		}
-		if err := s.store.UpsertDocumentTextEntries(ctx, textBatch); err != nil {
+		if err := s.store.UpsertIndexBatch(ctx, batch, textBatch); err != nil {
 			return err
 		}
 		count := len(batch)
@@ -463,69 +584,35 @@ func (s *Server) scanUserTree(ctx context.Context, user store.User, root string,
 		return nil
 	}
 
-	if startLogical != "" && startLogical != "/" {
-		info, err := os.Lstat(start)
-		if err != nil {
-			return err
+	var dbErr error
+	for item := range resultCh {
+		if ctx.Err() != nil {
+			break
 		}
-		entry, textEntry := s.indexEntryForPath(user, start, startLogical, info, scanID)
-		batch = append(batch, entry)
-		if textEntry != nil {
-			textBatch = append(textBatch, *textEntry)
+		batch = append(batch, item.entry)
+		if item.textEntry != nil {
+			textBatch = append(textBatch, *item.textEntry)
+		}
+		if len(batch) >= reindexBatchSize {
+			if err := flush(); err != nil {
+				dbErr = err
+				for range resultCh { //nolint:revive // drain so workers can exit
+				}
+				break
+			}
 		}
 	}
 
-	if err := filepath.WalkDir(start, func(physical string, d os.DirEntry, err error) error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				return nil
-			}
-			return err
-		}
-		if physical == root {
-			return nil
-		}
-		if startLogical != "" && physical == start {
-			return nil
-		}
-
-		info, err := d.Info()
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				return nil
-			}
-			return err
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		rel, err := filepath.Rel(root, physical)
-		if err != nil {
-			return err
-		}
-		logical, err := files.CleanLogical("/" + filepath.ToSlash(rel))
-		if err != nil {
-			return err
-		}
-
-		indexEntry, textEntry := s.indexEntryForPath(user, physical, logical, info, scanID)
-		batch = append(batch, indexEntry)
-		if textEntry != nil {
-			textBatch = append(textBatch, *textEntry)
-		}
-		if len(batch) >= reindexBatchSize {
-			return flush()
-		}
-		return nil
-	}); err != nil {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if dbErr != nil {
+		return dbErr
+	}
+	select {
+	case err := <-walkErrCh:
 		return err
+	default:
 	}
 	return flush()
 }

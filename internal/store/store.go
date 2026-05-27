@@ -103,7 +103,7 @@ type IndexStats struct {
 var ErrNotFound = errors.New("not found")
 
 func Open(path string) (*Store, error) {
-	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)"
+	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)&_pragma=cache_size(-131072)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err

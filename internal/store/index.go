@@ -157,6 +157,78 @@ func (s *Store) UpsertDocumentTextEntries(ctx context.Context, entries []Documen
 	return nil
 }
 
+// UpsertIndexBatch writes file_index entries and their document_fts content in a single
+// transaction. It intentionally skips file_index_fts; call RebuildFileIndexFTS once after
+// bulk loading so the trigram index is built in one pass rather than row-by-row.
+func (s *Store) UpsertIndexBatch(ctx context.Context, entries []FileIndexEntry, textEntries []DocumentTextEntry) error {
+	if len(entries) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	stmt, err := tx.PrepareContext(ctx, upsertFileIndexSQL)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = stmt.Close() }()
+
+	now := nowString()
+	for i := range entries {
+		entries[i].ParentPath = parentPathForIndex(entries[i].Path)
+		e := entries[i]
+		if _, err := stmt.ExecContext(ctx, e.UserID, e.Path, e.ParentPath, e.Name, e.Type, e.Size, timeString(e.ModifiedAt), e.MimeType, e.PreviewKind, e.LastSeenScan, now); err != nil {
+			return err
+		}
+	}
+
+	if len(textEntries) > 0 {
+		delStmt, err := tx.PrepareContext(ctx, deleteDocumentTextSQL)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = delStmt.Close() }()
+		insStmt, err := tx.PrepareContext(ctx, `INSERT INTO document_fts(user_id, path, content) VALUES (?, ?, ?)`)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = insStmt.Close() }()
+		for _, te := range textEntries {
+			if _, err := delStmt.ExecContext(ctx, te.UserID, te.Path); err != nil {
+				return err
+			}
+			if _, err := insStmt.ExecContext(ctx, te.UserID, te.Path, te.Content); err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
+// RebuildFileIndexFTS drops and rebuilds the trigram FTS5 search index from file_index.
+// Much faster than row-by-row updates for bulk loads; call once after a full reindex.
+func (s *Store) RebuildFileIndexFTS(ctx context.Context) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM file_index_fts`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO file_index_fts(rowid, user_id, path, name)
+		SELECT rowid, user_id, path, name FROM file_index
+	`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *Store) DeleteDocumentText(ctx context.Context, userID int64, logical string) error {
 	_, err := s.db.ExecContext(ctx, deleteDocumentTextSQL, userID, logical)
 	return err
