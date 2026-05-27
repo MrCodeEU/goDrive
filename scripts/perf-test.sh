@@ -186,9 +186,45 @@ time_get "search 'img_0000001' (exact)"         "$BASE_URL/api/files/search?q=im
 # Status via CLI (reads DB stats)
 time_cli "godrive status"                       status
 
-# Full reindex (most expensive — tests indexing throughput)
-log "Running full reindex (this may take several minutes for 400k files)..."
-time_cli "godrive reindex (full, 400k files)"   reindex
+# ---------------------------------------------------------------------------
+# Full reindex via API so progress is visible while running.
+# ---------------------------------------------------------------------------
+log "Starting full reindex via API (this may take several minutes for 400k files)..."
+REINDEX_START=$(date +%s%3N)
+curl -sf -X POST "$BASE_URL/api/admin/jobs/reindex" \
+    -H "$AUTH" -H "Content-Type: application/json" -d '{}' >/dev/null
+
+while true; do
+    JOB=$(curl -sf -H "$AUTH" "$BASE_URL/api/admin/jobs/current" 2>/dev/null || echo '{"job":{}}')
+    STATUS=$(echo "$JOB" | python3 -c "import sys,json; d=json.load(sys.stdin).get('job',{}); print(d.get('status',''))" 2>/dev/null || echo '')
+    DONE=$(echo  "$JOB" | python3 -c "import sys,json; d=json.load(sys.stdin).get('job',{}); print(d.get('done',0))" 2>/dev/null || echo '0')
+    TOTAL=$(echo "$JOB" | python3 -c "import sys,json; d=json.load(sys.stdin).get('job',{}); print(d.get('total',0))" 2>/dev/null || echo '0')
+    KNOWN=$(echo "$JOB" | python3 -c "import sys,json; d=json.load(sys.stdin).get('job',{}); print(d.get('total_known',False))" 2>/dev/null || echo 'False')
+    MSG=$(echo   "$JOB" | python3 -c "import sys,json; d=json.load(sys.stdin).get('job',{}); print(d.get('message',''))" 2>/dev/null || echo '')
+
+    if [[ "$KNOWN" == "True" && "$TOTAL" -gt 0 ]]; then
+        PCT=$(( DONE * 100 / TOTAL ))
+        printf "\r[perf] reindex: %d / %d files (%d%%) — %s  " "$DONE" "$TOTAL" "$PCT" "$STATUS"
+    else
+        printf "\r[perf] reindex: %d files indexed — %s  " "$DONE" "$STATUS"
+    fi
+
+    if [[ "$STATUS" == "completed" || "$STATUS" == "failed" || "$STATUS" == "canceled" ]]; then
+        echo ""
+        break
+    fi
+    sleep 3
+done
+
+REINDEX_END=$(date +%s%3N)
+REINDEX_ELAPSED=$(( REINDEX_END - REINDEX_START ))
+if [[ "$STATUS" == "completed" ]]; then
+    RESULTS+=("$(printf "%-45s  %5d ms" "reindex (full, 400k files)" "$REINDEX_ELAPSED")")
+    log "reindex completed → ${REINDEX_ELAPSED}ms"
+else
+    RESULTS+=("$(printf "%-45s  FAIL (%s)" "reindex (full, 400k files)" "$STATUS")")
+    log "reindex ended with status: $STATUS — $MSG"
+fi
 
 # List again post-reindex (verify index is populated)
 time_get "list / post-reindex"                  "$BASE_URL/api/files/list?path=/&limit=200"
@@ -196,8 +232,36 @@ time_get "search 'alpha' post-reindex"          "$BASE_URL/api/files/search?q=al
 
 # Preview warmup (optional — slow, tests thumbnail generation throughput)
 if [[ "${SKIP_WARMUP:-0}" != "1" ]]; then
-    log "Running preview warmup (SKIP_WARMUP=1 to skip)..."
-    time_cli "godrive preview-warmup (sample)"  preview-warmup
+    log "Running preview warmup via API (SKIP_WARMUP=1 to skip)..."
+    WARMUP_START=$(date +%s%3N)
+    curl -sf -X POST "$BASE_URL/api/admin/jobs/preview-warmup" \
+        -H "$AUTH" -H "Content-Type: application/json" -d '{}' >/dev/null
+
+    while true; do
+        JOB=$(curl -sf -H "$AUTH" "$BASE_URL/api/admin/jobs/current" 2>/dev/null || echo '{"job":{}}')
+        STATUS=$(echo "$JOB" | python3 -c "import sys,json; d=json.load(sys.stdin).get('job',{}); print(d.get('status',''))" 2>/dev/null || echo '')
+        DONE=$(echo  "$JOB" | python3 -c "import sys,json; d=json.load(sys.stdin).get('job',{}); print(d.get('done',0))" 2>/dev/null || echo '0')
+        TOTAL=$(echo "$JOB" | python3 -c "import sys,json; d=json.load(sys.stdin).get('job',{}); print(d.get('total',0))" 2>/dev/null || echo '0')
+        KNOWN=$(echo "$JOB" | python3 -c "import sys,json; d=json.load(sys.stdin).get('job',{}); print(d.get('total_known',False))" 2>/dev/null || echo 'False')
+
+        if [[ "$KNOWN" == "True" && "$TOTAL" -gt 0 ]]; then
+            PCT=$(( DONE * 100 / TOTAL ))
+            printf "\r[perf] preview-warmup: %d / %d (%d%%) — %s  " "$DONE" "$TOTAL" "$PCT" "$STATUS"
+        else
+            printf "\r[perf] preview-warmup: %d done — %s  " "$DONE" "$STATUS"
+        fi
+
+        if [[ "$STATUS" == "completed" || "$STATUS" == "failed" || "$STATUS" == "canceled" ]]; then
+            echo ""
+            break
+        fi
+        sleep 3
+    done
+
+    WARMUP_END=$(date +%s%3N)
+    WARMUP_ELAPSED=$(( WARMUP_END - WARMUP_START ))
+    RESULTS+=("$(printf "%-45s  %5d ms" "preview-warmup" "$WARMUP_ELAPSED")")
+    log "preview-warmup → ${WARMUP_ELAPSED}ms ($STATUS)"
 fi
 
 # ---------------------------------------------------------------------------
