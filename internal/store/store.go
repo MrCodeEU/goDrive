@@ -83,6 +83,12 @@ type DocumentTextEntry struct {
 	Content string
 }
 
+// FileIndexSnapshot holds the mtime+size of an indexed file for incremental comparison.
+type FileIndexSnapshot struct {
+	Size       int64
+	ModifiedAt time.Time
+}
+
 type PreviewCandidate struct {
 	UserID      int64     `json:"user_id"`
 	Username    string    `json:"username"`

@@ -296,6 +296,11 @@ func (s *Server) runReindexUsers(ctx context.Context, jobID string, users []stor
 		job.Message = "scanning user roots"
 	})
 
+	if err := s.store.TruncateDocumentStaging(ctx); err != nil {
+		s.finishJob(jobID, "failed", err.Error())
+		return
+	}
+
 	for _, user := range users {
 		if err := ctx.Err(); err != nil {
 			s.finishJob(jobID, "canceled", "reindex canceled")
@@ -340,6 +345,14 @@ func (s *Server) runReindexUsers(ctx context.Context, jobID string, users []stor
 	s.jobs.update(jobID, func(job *AdminJob) {
 		job.Message = "rebuilding search index"
 	})
+	if err := s.store.ApplyDocumentStaging(ctx); err != nil {
+		if errors.Is(err, context.Canceled) {
+			s.finishJob(jobID, "canceled", "reindex canceled")
+			return
+		}
+		s.finishJob(jobID, "failed", err.Error())
+		return
+	}
 	if err := s.store.RebuildFileIndexFTS(ctx); err != nil {
 		if errors.Is(err, context.Canceled) {
 			s.finishJob(jobID, "canceled", "reindex canceled")
@@ -348,6 +361,7 @@ func (s *Server) runReindexUsers(ctx context.Context, jobID string, users []stor
 		s.finishJob(jobID, "failed", err.Error())
 		return
 	}
+	_ = s.store.CheckpointWAL(ctx)
 	s.finishJob(jobID, "completed", "reindex completed")
 }
 
@@ -370,6 +384,10 @@ func (s *Server) runReindexPath(ctx context.Context, jobID string, user store.Us
 	})
 	if user.Disabled {
 		s.finishJob(jobID, "failed", "user is disabled")
+		return
+	}
+	if err := s.store.TruncateDocumentStaging(ctx); err != nil {
+		s.finishJob(jobID, "failed", err.Error())
 		return
 	}
 	if err := s.scanUserPath(ctx, user, cleanLogical, scanID, jobID); err != nil {
@@ -416,6 +434,15 @@ func (s *Server) runReindexPath(ctx context.Context, jobID string, user store.Us
 	s.jobs.update(jobID, func(job *AdminJob) {
 		job.Deleted += deleted
 	})
+	if err := s.store.ApplyDocumentStaging(ctx); err != nil {
+		if errors.Is(err, context.Canceled) {
+			s.finishJob(jobID, "canceled", "subpath reindex canceled")
+			return
+		}
+		s.finishJob(jobID, "failed", err.Error())
+		return
+	}
+	_ = s.store.CheckpointWAL(ctx)
 	s.finishJob(jobID, "completed", "subpath reindex completed")
 }
 
@@ -557,42 +584,91 @@ func (s *Server) scanUserTree(ctx context.Context, user store.User, root string,
 		close(resultCh)
 	}()
 
-	// Batch accumulator: collect results and flush to DB.
-	batch := make([]store.FileIndexEntry, 0, reindexBatchSize)
-	textBatch := make([]store.DocumentTextEntry, 0, reindexBatchSize)
-	flush := func() error {
-		if len(batch) == 0 {
+	// Load existing index snapshot for incremental comparison.
+	snapshot, err := s.store.LoadFileIndexSnapshot(ctx, user.ID)
+	if err != nil {
+		return err
+	}
+
+	// Batch accumulator: split results into changed (full upsert) and unchanged (touch only).
+	// Text content goes to staging table; document_fts is rebuilt in bulk after the scan.
+	changedBatch := make([]store.FileIndexEntry, 0, reindexBatchSize)
+	unchangedBatch := make([]string, 0, reindexBatchSize)
+	stagingBatch := make([]store.DocumentTextEntry, 0, reindexBatchSize)
+
+	flushChanged := func() error {
+		if len(changedBatch) == 0 {
 			return nil
 		}
-		if err := s.store.UpsertIndexBatch(ctx, batch, textBatch); err != nil {
+		if err := s.store.UpsertIndexBatch(ctx, changedBatch); err != nil {
 			return err
 		}
-		count := len(batch)
-		last := batch[count-1].Path
-		batch = batch[:0]
-		textBatch = textBatch[:0]
+		count := len(changedBatch)
+		last := changedBatch[count-1].Path
+		changedBatch = changedBatch[:0]
 		s.jobs.update(jobID, func(job *AdminJob) {
 			job.Done += int64(count)
 			job.Message = "indexed " + user.Username + ":" + last
 		})
 		return nil
 	}
+	flushUnchanged := func() error {
+		if len(unchangedBatch) == 0 {
+			return nil
+		}
+		if err := s.store.TouchFileIndexEntries(ctx, user.ID, unchangedBatch, scanID); err != nil {
+			return err
+		}
+		count := len(unchangedBatch)
+		unchangedBatch = unchangedBatch[:0]
+		s.jobs.update(jobID, func(job *AdminJob) {
+			job.Done += int64(count)
+		})
+		return nil
+	}
+	flushStaging := func() error {
+		if len(stagingBatch) == 0 {
+			return nil
+		}
+		if err := s.store.UpsertDocumentStaging(ctx, stagingBatch); err != nil {
+			return err
+		}
+		stagingBatch = stagingBatch[:0]
+		return nil
+	}
 
-	var dbErr error
+	drainAndErr := func(e error) error {
+		for range resultCh { //nolint:revive
+		}
+		return e
+	}
+
 	for item := range resultCh {
 		if ctx.Err() != nil {
 			break
 		}
-		batch = append(batch, item.entry)
-		if item.textEntry != nil {
-			textBatch = append(textBatch, *item.textEntry)
+		snap, known := snapshot[item.entry.Path]
+		if known && snap.Size == item.entry.Size && snap.ModifiedAt.Equal(item.entry.ModifiedAt) {
+			unchangedBatch = append(unchangedBatch, item.entry.Path)
+		} else {
+			changedBatch = append(changedBatch, item.entry)
+			if item.textEntry != nil {
+				stagingBatch = append(stagingBatch, *item.textEntry)
+			}
 		}
-		if len(batch) >= reindexBatchSize {
-			if err := flush(); err != nil {
-				dbErr = err
-				for range resultCh { //nolint:revive // drain so workers can exit
-				}
-				break
+		if len(changedBatch) >= reindexBatchSize {
+			if err := flushChanged(); err != nil {
+				return drainAndErr(err)
+			}
+		}
+		if len(unchangedBatch) >= reindexBatchSize {
+			if err := flushUnchanged(); err != nil {
+				return drainAndErr(err)
+			}
+		}
+		if len(stagingBatch) >= reindexBatchSize {
+			if err := flushStaging(); err != nil {
+				return drainAndErr(err)
 			}
 		}
 	}
@@ -600,15 +676,18 @@ func (s *Server) scanUserTree(ctx context.Context, user store.User, root string,
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	if dbErr != nil {
-		return dbErr
-	}
 	select {
 	case err := <-walkErrCh:
 		return err
 	default:
 	}
-	return flush()
+	if err := flushChanged(); err != nil {
+		return err
+	}
+	if err := flushUnchanged(); err != nil {
+		return err
+	}
+	return flushStaging()
 }
 
 func (s *Server) scanSinglePath(ctx context.Context, user store.User, physical string, logical string, info os.FileInfo, scanID string, jobID string) error {

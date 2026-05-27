@@ -157,10 +157,10 @@ func (s *Store) UpsertDocumentTextEntries(ctx context.Context, entries []Documen
 	return nil
 }
 
-// UpsertIndexBatch writes file_index entries and their document_fts content in a single
-// transaction. It intentionally skips file_index_fts; call RebuildFileIndexFTS once after
-// bulk loading so the trigram index is built in one pass rather than row-by-row.
-func (s *Store) UpsertIndexBatch(ctx context.Context, entries []FileIndexEntry, textEntries []DocumentTextEntry) error {
+// UpsertIndexBatch writes file_index entries in a single transaction.
+// Skips file_index_fts — call RebuildFileIndexFTS once after bulk loading.
+// Skips document_fts — use UpsertDocumentStaging + ApplyDocumentStaging instead.
+func (s *Store) UpsertIndexBatch(ctx context.Context, entries []FileIndexEntry) error {
 	if len(entries) == 0 {
 		return nil
 	}
@@ -184,29 +184,135 @@ func (s *Store) UpsertIndexBatch(ctx context.Context, entries []FileIndexEntry, 
 			return err
 		}
 	}
+	return tx.Commit()
+}
 
-	if len(textEntries) > 0 {
-		delStmt, err := tx.PrepareContext(ctx, deleteDocumentTextSQL)
-		if err != nil {
+// TouchFileIndexEntries updates only last_seen_scan for files that haven't changed.
+// Prevents DeleteFileIndexEntriesNotSeen from removing them without re-writing all fields.
+func (s *Store) TouchFileIndexEntries(ctx context.Context, userID int64, paths []string, scanID string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	stmt, err := tx.PrepareContext(ctx, `UPDATE file_index SET last_seen_scan = ? WHERE user_id = ? AND path = ?`)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = stmt.Close() }()
+
+	for _, p := range paths {
+		if _, err := stmt.ExecContext(ctx, scanID, userID, p); err != nil {
 			return err
-		}
-		defer func() { _ = delStmt.Close() }()
-		insStmt, err := tx.PrepareContext(ctx, `INSERT INTO document_fts(user_id, path, content) VALUES (?, ?, ?)`)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = insStmt.Close() }()
-		for _, te := range textEntries {
-			if _, err := delStmt.ExecContext(ctx, te.UserID, te.Path); err != nil {
-				return err
-			}
-			if _, err := insStmt.ExecContext(ctx, te.UserID, te.Path, te.Content); err != nil {
-				return err
-			}
 		}
 	}
-
 	return tx.Commit()
+}
+
+// LoadFileIndexSnapshot returns a map[path]→(size, mtime) for a user's indexed files.
+// Used by the incremental reindex to detect unchanged files.
+func (s *Store) LoadFileIndexSnapshot(ctx context.Context, userID int64) (map[string]FileIndexSnapshot, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT path, size, modified_at FROM file_index WHERE user_id = ?`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	snap := make(map[string]FileIndexSnapshot)
+	for rows.Next() {
+		var p, modStr string
+		var size int64
+		if err := rows.Scan(&p, &size, &modStr); err != nil {
+			return nil, err
+		}
+		t, _ := scanTime(modStr)
+		snap[p] = FileIndexSnapshot{Size: size, ModifiedAt: t}
+	}
+	return snap, rows.Err()
+}
+
+// UpsertDocumentStaging writes text content to the staging table for deferred FTS rebuild.
+func (s *Store) UpsertDocumentStaging(ctx context.Context, entries []DocumentTextEntry) error {
+	if len(entries) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	stmt, err := tx.PrepareContext(ctx, `INSERT INTO document_staging(user_id, path, content) VALUES (?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = stmt.Close() }()
+
+	for _, e := range entries {
+		if _, err := stmt.ExecContext(ctx, e.UserID, e.Path, e.Content); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// TruncateDocumentStaging clears the staging table before a new reindex run.
+func (s *Store) TruncateDocumentStaging(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM document_staging`)
+	return err
+}
+
+// ApplyDocumentStaging flushes staged text content into document_fts:
+//  1. Replaces changed/new entries (those present in staging).
+//  2. Removes orphaned entries for files no longer in file_index.
+//
+// Unchanged files retain their existing document_fts entries untouched.
+func (s *Store) ApplyDocumentStaging(ctx context.Context) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Delete old document_fts entries for files that have a replacement in staging.
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM document_fts WHERE rowid IN (
+			SELECT df.rowid FROM document_fts df, document_staging ds
+			WHERE CAST(df.user_id AS INTEGER) = ds.user_id AND df.path = ds.path
+		)
+	`); err != nil {
+		return err
+	}
+	// Bulk insert updated entries.
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO document_fts(user_id, path, content)
+		SELECT user_id, path, content FROM document_staging
+	`); err != nil {
+		return err
+	}
+	// Remove entries whose source file was deleted from file_index.
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM document_fts WHERE rowid IN (
+			SELECT df.rowid FROM document_fts df
+			WHERE NOT EXISTS (
+				SELECT 1 FROM file_index fi
+				WHERE fi.user_id = CAST(df.user_id AS INTEGER) AND fi.path = df.path
+			)
+		)
+	`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// CheckpointWAL forces a WAL truncate checkpoint after a bulk write pass.
+func (s *Store) CheckpointWAL(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`)
+	return err
 }
 
 // RebuildFileIndexFTS drops and rebuilds the trigram FTS5 search index from file_index.

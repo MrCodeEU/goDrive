@@ -114,7 +114,24 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if err := s.ensureFileIndexSearch(ctx); err != nil {
 		return err
 	}
-	return s.ensureDocumentSearch(ctx)
+	if err := s.ensureDocumentSearch(ctx); err != nil {
+		return err
+	}
+	return s.ensureDocumentStaging(ctx)
+}
+
+func (s *Store) ensureDocumentStaging(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS document_staging (
+			user_id INTEGER NOT NULL,
+			path    TEXT NOT NULL,
+			content TEXT NOT NULL
+		)
+	`); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_document_staging_user ON document_staging(user_id)`)
+	return err
 }
 
 func (s *Store) ensureColumn(ctx context.Context, table, column, definition string) error {
