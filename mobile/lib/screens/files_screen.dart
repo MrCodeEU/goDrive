@@ -778,7 +778,7 @@ class _FilesScreenState extends State<FilesScreen> with WidgetsBindingObserver {
     List<File> files = [];
 
     if (source == 'files') {
-      final result = await FilePicker.pickFiles(allowMultiple: true);
+      final result = await FilePicker.pickFiles();
       if (result != null) {
         files = result.files
             .where((f) => f.path != null)

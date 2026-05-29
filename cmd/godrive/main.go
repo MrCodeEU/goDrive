@@ -93,6 +93,7 @@ func run() error {
 
 	fileService := files.NewService(cfg.TrashDir, st)
 	srv := server.New(cfg, st, fileService, log)
+	logPreviewTools(log)
 
 	if cfg.EnableWatcher {
 		if watcher, err := watch.New(log, st); err != nil {
@@ -139,6 +140,16 @@ func run() error {
 			return nil
 		}
 		return err
+	}
+}
+
+func logPreviewTools(log *slog.Logger) {
+	for _, tool := range server.PreviewToolStatuses() {
+		if tool.Available {
+			log.Info("preview tool available", "tool", tool.Name, "path", tool.Path, "purpose", tool.Purpose)
+			continue
+		}
+		log.Warn("preview tool missing", "tool", tool.Name, "purpose", tool.Purpose, "err", tool.Error)
 	}
 }
 

@@ -79,6 +79,7 @@ func (s *Server) thumbnail(w http.ResponseWriter, r *http.Request, user store.Us
 			return
 		}
 		if err := s.generateThumbnail(r.Context(), resolved.Physical, kind, size, cachePath); err != nil {
+			s.log.Warn("thumbnail generation failed", "path", resolved.Logical, "kind", kind, "size", size, "err", err)
 			writeError(w, http.StatusUnsupportedMediaType, err.Error())
 			return
 		}
@@ -121,6 +122,7 @@ func (s *Server) trashThumbnail(w http.ResponseWriter, r *http.Request, user sto
 			return
 		}
 		if err := s.generateThumbnail(r.Context(), item.TrashPath, kind, size, cachePath); err != nil {
+			s.log.Warn("trash thumbnail generation failed", "id", item.ID, "name", item.OriginalName, "kind", kind, "size", size, "err", err)
 			writeError(w, http.StatusUnsupportedMediaType, err.Error())
 			return
 		}
