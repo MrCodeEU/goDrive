@@ -30,6 +30,7 @@ class FileEvent {
 class FileEventService {
   final ApiClient client;
   final http.Client _http;
+  final bool _ownsClient;
   final _events = StreamController<FileEvent>.broadcast();
   final _status = StreamController<FileEventConnectionStatus>.broadcast();
   bool _running = false;
@@ -38,7 +39,8 @@ class FileEventService {
   StreamSubscription<String>? _lineSubscription;
 
   FileEventService({required this.client, http.Client? httpClient})
-      : _http = httpClient ?? http.Client();
+      : _http = httpClient ?? client.httpClient,
+        _ownsClient = httpClient != null;
 
   Stream<FileEvent> get events => _events.stream;
   Stream<FileEventConnectionStatus> get status => _status.stream;
@@ -62,7 +64,7 @@ class FileEventService {
   Future<void> dispose() async {
     await stop();
     _disposed = true;
-    _http.close();
+    if (_ownsClient) _http.close();
     await _events.close();
     await _status.close();
   }
