@@ -12,7 +12,8 @@ ANDROID_SDK      ?= $(HOME)/Android/Sdk
 EMULATOR         ?= $(ANDROID_SDK)/emulator/emulator
 FLUTTER          ?= $(HOME)/develop/flutter/bin/flutter
 AVD_NAME         ?= Pixel_10
-ANDROID_DEVICE   ?= emulator-5554
+ANDROID_EMULATOR ?= emulator-5554
+ANDROID_DEVICE   ?= $(shell adb devices | grep -w "device" | cut -f1)
 # Android Studio Flatpak stores AVDs here instead of ~/.android/avd
 ANDROID_AVD_HOME ?= $(HOME)/.var/app/com.google.AndroidStudio/config/.android/avd
 
@@ -173,11 +174,11 @@ emulator-start:
 	@ANDROID_AVD_HOME=$(ANDROID_AVD_HOME) $(EMULATOR) -avd $(AVD_NAME) -no-snapshot-save -no-audio &
 	@echo "Waiting for device boot..."
 	@adb wait-for-device
-	@until adb -s $(ANDROID_DEVICE) shell getprop sys.boot_completed 2>/dev/null | grep -q "^1"; do sleep 2; done
+	@until adb -s $(ANDROID_EMULATOR) shell getprop sys.boot_completed 2>/dev/null | grep -q "^1"; do sleep 2; done
 	@echo "Emulator ready."
 
 mobile-run:
-	cd mobile && $(FLUTTER) run -d $(ANDROID_DEVICE)
+	cd mobile && $(FLUTTER) run -d $(ANDROID_EMULATOR)
 
 # Start emulator + backend + app in one command.
 # Backend runs without dev latency so mobile feels fast.
@@ -191,7 +192,7 @@ mobile-dev: emulator-start
 	else \
 		echo "Backend already running on :8121"; \
 	fi
-	cd mobile && $(FLUTTER) run -d $(ANDROID_DEVICE)
+	cd mobile && $(FLUTTER) run -d $(ANDROID_EMULATOR)
 
 # ─── iOS targets ────────────────────────────────────────────────────────────
 
