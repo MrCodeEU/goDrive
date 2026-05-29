@@ -31,7 +31,7 @@ IOS_IPA        := /tmp/godrive-ios/godrive.ipa
 .PHONY: fmt fmt-check vet test test-cover test-race tidy golangci lint check api-contract api-types run \
         security security-go security-web security-osv security-docker \
         web-install web-dev web-check web-build web-test web-e2e \
-        mobile-install mobile-test mobile-build-android mobile-build-android-release \
+        mobile-install mobile-test mobile-build-android mobile-build-android-release android-sideload \
         emulator-start emulator-wait mobile-run mobile-dev \
         xtool-setup xtool-auth ios-push ios-deploy ios-refresh ios-devices \
         install-hooks \
@@ -158,6 +158,15 @@ mobile-build-android:
 mobile-build-android-release:
 	cd mobile && $(FLUTTER) build appbundle --release
 	cd mobile && $(FLUTTER) build apk --release
+
+# Build a debug APK and install it on ANDROID_DEVICE (real phone or emulator).
+# Plug in device with USB debugging enabled, or start emulator first.
+# Usage: make android-sideload [ANDROID_DEVICE=<serial>]
+ANDROID_DEBUG_APK := mobile/build/app/outputs/flutter-apk/app-debug.apk
+android-sideload:
+	cd mobile && $(FLUTTER) build apk --debug
+	adb -s $(ANDROID_DEVICE) install -r $(ANDROID_DEBUG_APK)
+	@echo "→ Installed on $(ANDROID_DEVICE)"
 
 emulator-start:
 	@echo "Starting emulator $(AVD_NAME)..."
