@@ -62,9 +62,53 @@ class _Root extends StatelessWidget {
     if (auth.loading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
+    if (auth.initFailed) {
+      return _RetryScreen(onRetry: () => context.read<AuthState>().retryInit());
+    }
     if (!auth.loggedIn) {
       return const LoginScreen();
     }
     return const FilesScreen(path: '/');
+  }
+}
+
+class _RetryScreen extends StatelessWidget {
+  final VoidCallback onRetry;
+  const _RetryScreen({required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.cloud_off_rounded, size: 56, color: cs.outline),
+              const SizedBox(height: 16),
+              Text('Could not reach server',
+                  style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 8),
+              Text('Check your connection and try again.',
+                  style: TextStyle(color: cs.onSurfaceVariant),
+                  textAlign: TextAlign.center),
+              const SizedBox(height: 24),
+              FilledButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
+              ),
+              const SizedBox(height: 12),
+              TextButton(
+                onPressed: () => context.read<AuthState>().logout(),
+                child: const Text('Sign in to a different account'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

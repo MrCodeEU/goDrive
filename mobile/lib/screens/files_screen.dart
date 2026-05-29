@@ -1104,8 +1104,17 @@ class _FilesScreenState extends State<FilesScreen> with WidgetsBindingObserver {
                     itemBuilder: (_) => [
                       const PopupMenuItem(value: 'trash', child: Text('Trash')),
                       if (user?.isAdmin == true)
-                        const PopupMenuItem(
-                            value: 'admin', child: Text('Admin')),
+                        PopupMenuItem(
+                            value: 'admin',
+                            enabled: !context.read<AuthState>().demoMode,
+                            child: Text('Admin',
+                                style: context.read<AuthState>().demoMode
+                                    ? TextStyle(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurface
+                                            .withAlpha(97))
+                                    : null)),
                       PopupMenuItem(
                           value: 'logout',
                           child: Text('Sign out (${user?.username ?? ''})')),
@@ -1198,7 +1207,7 @@ class _FilesScreenState extends State<FilesScreen> with WidgetsBindingObserver {
         ),
       );
     }
-    if (_entries.isEmpty && !_loading) {
+    if (_entries.isEmpty && !_loading && !_searching) {
       return RefreshIndicator(
         onRefresh: () => _load(_currentPath),
         child: SingleChildScrollView(
@@ -1416,7 +1425,7 @@ class _FilesScreenState extends State<FilesScreen> with WidgetsBindingObserver {
   IconData _viewModeIcon(_ViewMode mode) {
     return switch (mode) {
       _ViewMode.list => Icons.grid_view,
-      _ViewMode.grid => Icons.view_module,
+      _ViewMode.grid => Icons.view_quilt,
       _ViewMode.masonry => Icons.view_list,
     };
   }

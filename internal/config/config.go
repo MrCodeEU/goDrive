@@ -40,6 +40,8 @@ type Config struct {
 	DemoMode               bool
 	DemoUser               string
 	DemoPassword           string
+	DemoUploadMaxFiles     int
+	DemoUploadTTL          time.Duration
 	DevLatencyMin          time.Duration
 	DevLatencyMax          time.Duration
 }
@@ -120,6 +122,8 @@ func Load() (Config, error) {
 		DemoMode:               envBool("GODRIVE_DEMO_MODE", false),
 		DemoUser:               env("GODRIVE_DEMO_USER", "demo"),
 		DemoPassword:           env("GODRIVE_DEMO_PASSWORD", "demo"),
+		DemoUploadMaxFiles:     envInt("GODRIVE_DEMO_UPLOAD_MAX_FILES", 3),
+		DemoUploadTTL:          mustDuration("GODRIVE_DEMO_UPLOAD_TTL", "60s"),
 		DevLatencyMin:          devLatencyMin,
 		DevLatencyMax:          devLatencyMax,
 	}
@@ -409,4 +413,12 @@ func envInt(key string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+func mustDuration(key string, fallback string) time.Duration {
+	d, err := parseOptionalDuration(key, fallback)
+	if err != nil {
+		return 60 * time.Second
+	}
+	return d
 }

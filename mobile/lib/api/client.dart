@@ -52,28 +52,77 @@ class ApiClient {
     throw ApiException(resp.statusCode, message);
   }
 
+  Future<T> _withRetry<T>(Future<T> Function() fn,
+      {bool retryOn5xx = false, int maxRetries = 2}) async {
+    int attempt = 0;
+    while (true) {
+      try {
+        return await fn();
+      } on ApiException catch (e) {
+        if (retryOn5xx && e.statusCode >= 500 && attempt < maxRetries) {
+          attempt++;
+          await Future.delayed(Duration(seconds: 1 << (attempt - 1)));
+          continue;
+        }
+        rethrow;
+      } catch (_) {
+        if (attempt < maxRetries) {
+          attempt++;
+          await Future.delayed(Duration(seconds: 1 << (attempt - 1)));
+          continue;
+        }
+        rethrow;
+      }
+    }
+  }
+
   Future<Map<String, dynamic>> _get(String path,
       [Map<String, String>? params]) async {
-    final resp = await _http.get(_uri(path, params), headers: _headers);
-    return _parseResponse(resp);
+    return _withRetry(retryOn5xx: true, () async {
+      final resp = await _http.get(_uri(path, params), headers: _headers);
+      return _parseResponse(resp);
+    });
   }
 
   Future<Map<String, dynamic>> _post(String path, Object body) async {
-    final resp =
-        await _http.post(_uri(path), headers: _headers, body: jsonEncode(body));
-    return _parseResponse(resp);
+    return _withRetry(() async {
+      final resp = await _http.post(_uri(path),
+          headers: _headers, body: jsonEncode(body));
+      return _parseResponse(resp);
+    });
   }
 
   Future<Map<String, dynamic>> _patch(String path, Object body) async {
-    final resp = await _http.patch(_uri(path),
-        headers: _headers, body: jsonEncode(body));
-    return _parseResponse(resp);
+    return _withRetry(() async {
+      final resp = await _http.patch(_uri(path),
+          headers: _headers, body: jsonEncode(body));
+      return _parseResponse(resp);
+    });
   }
 
   Future<Map<String, dynamic>> _delete(String path,
       [Map<String, String>? params]) async {
-    final resp = await _http.delete(_uri(path, params), headers: _headers);
-    return _parseResponse(resp);
+    return _withRetry(() async {
+      final resp = await _http.delete(_uri(path, params), headers: _headers);
+      return _parseResponse(resp);
+    });
+  }
+
+  static Future<bool> fetchDemoMode(String baseUrl,
+      {http.Client? httpClient}) async {
+    final client = httpClient ?? http.Client();
+    try {
+      final resp = await client.get(
+        Uri.parse(
+            '${baseUrl.trimRight().replaceAll(RegExp(r'/$'), '')}/api/public/config'),
+        headers: {'Accept': 'application/json'},
+      );
+      if (resp.statusCode == 200) {
+        final body = jsonDecode(resp.body) as Map<String, dynamic>;
+        return body['demo_mode'] as bool? ?? false;
+      }
+    } catch (_) {}
+    return false;
   }
 
   // Auth

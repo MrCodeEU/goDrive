@@ -17,30 +17,40 @@ import (
 	"godrive/internal/watch"
 )
 
+type demoUploadMeta struct {
+	uploadedAt   time.Time
+	user         store.User
+	logicalPath  string
+	physicalPath string
+}
+
 type Server struct {
-	cfg        config.Config
-	store      *store.Store
-	files      *files.Service
-	log        *slog.Logger
-	jobs       *AdminJobs
-	watcher    *watch.Watcher
-	loginLimit *loginLimiter
-	httpServer *http.Server
-	previewSem chan struct{}
-	eventsMu   sync.Mutex
-	eventsSubs map[int64]map[chan WebhookEvent]struct{}
+	cfg           config.Config
+	store         *store.Store
+	files         *files.Service
+	log           *slog.Logger
+	jobs          *AdminJobs
+	watcher       *watch.Watcher
+	loginLimit    *loginLimiter
+	httpServer    *http.Server
+	previewSem    chan struct{}
+	eventsMu      sync.Mutex
+	eventsSubs    map[int64]map[chan WebhookEvent]struct{}
+	demoUploadsMu sync.Mutex
+	demoUploads   map[string]demoUploadMeta
 }
 
 func New(cfg config.Config, st *store.Store, fileService *files.Service, log *slog.Logger) *Server {
 	server := &Server{
-		cfg:        cfg,
-		store:      st,
-		files:      fileService,
-		log:        log,
-		jobs:       NewAdminJobs(),
-		loginLimit: newLoginLimiter(),
-		previewSem: make(chan struct{}, previewWorkerLimit(cfg.PreviewWorkers)),
-		eventsSubs: make(map[int64]map[chan WebhookEvent]struct{}),
+		cfg:         cfg,
+		store:       st,
+		files:       fileService,
+		log:         log,
+		jobs:        NewAdminJobs(),
+		loginLimit:  newLoginLimiter(),
+		previewSem:  make(chan struct{}, previewWorkerLimit(cfg.PreviewWorkers)),
+		eventsSubs:  make(map[int64]map[chan WebhookEvent]struct{}),
+		demoUploads: make(map[string]demoUploadMeta),
 	}
 	server.httpServer = &http.Server{
 		Addr:    cfg.Addr,
@@ -192,7 +202,6 @@ func (s *Server) demoModeBlocks(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	}
 	if r.URL.Path == "/api/webhooks" || strings.HasPrefix(r.URL.Path, "/api/webhooks/") ||
-		strings.HasPrefix(r.URL.Path, "/api/tus") ||
 		r.URL.Path == "/api/trash" || strings.HasPrefix(r.URL.Path, "/api/trash/") {
 		writeError(w, http.StatusForbidden, "this action is disabled in demo mode")
 		return true

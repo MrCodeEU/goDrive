@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"godrive/internal/auth"
 	"godrive/internal/files"
@@ -60,6 +61,15 @@ func (s *Server) tusCreate(w http.ResponseWriter, r *http.Request, user store.Us
 	if s.cfg.MaxUploadBytes > 0 && uploadLength > s.cfg.MaxUploadBytes {
 		writeError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("upload exceeds maximum allowed size of %d bytes", s.cfg.MaxUploadBytes))
 		return
+	}
+	if s.cfg.DemoMode && s.cfg.DemoUploadMaxFiles > 0 {
+		s.demoUploadsMu.Lock()
+		count := len(s.demoUploads)
+		s.demoUploadsMu.Unlock()
+		if count >= s.cfg.DemoUploadMaxFiles {
+			writeError(w, http.StatusTooManyRequests, fmt.Sprintf("demo upload limit of %d files reached; uploads are automatically deleted after %s", s.cfg.DemoUploadMaxFiles, s.cfg.DemoUploadTTL))
+			return
+		}
 	}
 
 	id, err := auth.RandomID(16)
@@ -286,6 +296,21 @@ func (s *Server) completeUpload(r *http.Request, user store.User, id string) (fi
 	s.refreshIndexPath(r.Context(), user, entry.Path)
 	if entry.PreviewKind == "image" || entry.PreviewKind == "raw" || entry.PreviewKind == "video" || entry.PreviewKind == "pdf" || entry.PreviewKind == "office" {
 		go s.generateThumbnailsAsync(user, entry)
+	}
+	if s.cfg.DemoMode {
+		resolved, err := files.ResolveExisting(user.HomeRoot, entry.Path)
+		physPath := ""
+		if err == nil {
+			physPath = resolved.Physical
+		}
+		s.demoUploadsMu.Lock()
+		s.demoUploads[entry.Path] = demoUploadMeta{
+			uploadedAt:   time.Now(),
+			user:         user,
+			logicalPath:  entry.Path,
+			physicalPath: physPath,
+		}
+		s.demoUploadsMu.Unlock()
 	}
 	s.fireEvent(user, "upload.complete", map[string]any{
 		"path":         entry.Path,

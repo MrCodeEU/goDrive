@@ -22,7 +22,6 @@ func TestDemoModeBlocksDangerousRoutes(t *testing.T) {
 	}{
 		{method: http.MethodPost, path: "/api/admin/api-keys", body: `{"name":"demo"}`},
 		{method: http.MethodPost, path: "/api/webhooks", body: `{"url":"https://example.com/hook"}`},
-		{method: http.MethodPost, path: "/api/tus"},
 		{method: http.MethodPost, path: "/api/admin/jobs/reindex"},
 		{method: http.MethodPatch, path: "/api/admin/users/1", body: `{"disabled":true}`},
 		{method: http.MethodDelete, path: "/api/admin/api-keys/key_demo"},

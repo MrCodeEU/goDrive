@@ -120,6 +120,7 @@ func run() error {
 	srv.StartReconciliation(ctx, cfg.ReconcileInterval)
 	srv.StartUploadCleanup(ctx, cfg.UploadDir, cfg.UploadTTL)
 	srv.StartSessionCleanup(ctx)
+	srv.StartDemoUploadCleanup(ctx)
 
 	errCh := make(chan error, 1)
 	go func() {
