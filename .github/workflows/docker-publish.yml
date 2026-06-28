@@ -97,6 +97,11 @@ jobs:
           cache-to: type=gha,mode=max,scope=demo
           platforms: ${{ steps.platforms.outputs.value }}
 
+      - name: Make demo package public
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh api --method PATCH /user/packages/container/godrive-demo -f visibility=public
+
       - name: Trigger homelab demo deployment
         if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.deploy_demo) }}
         env:
@@ -174,3 +179,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: ${{ steps.platforms.outputs.value }}
+
+      - name: Make production package public
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh api --method PATCH /user/packages/container/godrive -f visibility=public
