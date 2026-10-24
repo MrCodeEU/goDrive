@@ -15,7 +15,7 @@ COPY . .
 COPY --from=web /src/internal/server/static/ ./internal/server/static/
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /godrive ./cmd/godrive
 
-FROM debian:trixie-slim@sha256:4876fdea29cac1a33a3195f1eb1952feb1fca7dd6dd00be3e2f1879cf20d34d2
+FROM debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     ffmpeg \
