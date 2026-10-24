@@ -14,7 +14,7 @@ dependencies:
   http: ^1.2.0
 
   # Auth / persistence
-  flutter_secure_storage: ^10.3.1
+  flutter_secure_storage: ^11.0.0
   shared_preferences: ^2.3.2
 
   # State
@@ -45,7 +45,7 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^4.0.0
+  flutter_lints: ^6.0.0
 
 flutter:
   uses-material-design: true
