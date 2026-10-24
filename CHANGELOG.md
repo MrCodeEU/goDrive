@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Security
+
+- Container images are built on Debian 13 (trixie) instead of Debian 12: a vulnerability scan of the demo image drops from 445 to 300 High/Critical findings, none of the rest fixable yet (Debian ffmpeg, openexr and similar libraries).
+- Go 1.26.10 (standard library fixes), `golang.org/x/net` 0.60.0 and `golang.org/x/crypto` 0.57.0.
+
 ### Added
 
 - MIT license, contribution guide, issue templates, pull request template, and code of conduct.
